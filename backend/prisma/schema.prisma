@@ -1,0 +1,166 @@
+// LingoTrack data model.
+// Source of truth: ../../ARCHITECTURE.md section 2.
+//
+// `Track.difficultyLevel` and `UserWordBank.status` are kept as strings (with
+// their permitted values documented inline) rather than Prisma enums — this
+// began as a SQL Server constraint (no native enum) and is preserved on the
+// Postgres deployment so values can evolve without a migration. Keep them in
+// sync with src/config/difficulty.ts.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers local dev; the debian target is the Railway/Linux runtime.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+model User {
+  id             String              @id @default(uuid())
+  email          String              @unique
+  spotifyId      String              @unique
+  accessToken    String
+  refreshToken   String
+  tokenExpiresAt DateTime
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  wordBank       UserWordBank[]
+  progress       UserTrackProgress[]
+}
+
+model Track {
+  id              String              @id
+  title           String
+  artist          String
+  albumArtUrl     String?
+  // Total track length from Spotify. Nullable because Step 2 ingestion
+  // predates this column; the Step 3 audio-dynamics layer needs it to compute
+  // words-per-minute and falls back to a neutral score when absent.
+  durationMs      Int?
+  // 30-second Spotify preview MP3 for the HTML5 <audio> sync player. Frequently
+  // null — Spotify omits it for many tracks — so the player degrades gracefully.
+  previewUrl      String?
+  // BEGINNER, INTERMEDIATE, ADVANCED — plus UNGRADED, written by Spotify
+  // ingestion for tracks that Step 3 has not scored yet. See
+  // src/config/difficulty.ts.
+  difficultyLevel String
+  difficultyScore Float
+  lyricsSynced    Boolean             @default(false)
+  lyrics          LyricLine[]
+  userProgress    UserTrackProgress[]
+  wordBankEntries UserWordBank[]
+}
+
+model LyricLine {
+  id         String @id @default(uuid())
+  trackId    String
+  track      Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  text       String
+  startTime  Int // Milliseconds from start of song
+  endTime    Int // Milliseconds from start of song
+  lineNumber Int
+}
+
+/// A word the learner captured from a lyric, plus its enrichment and schedule.
+///
+/// Keyed on (userId, LEMMA) rather than the surface form: tapping "climbing"
+/// and later "climbed" must reinforce ONE entry, not create two competing ones
+/// — the whole point of the morphological enrichment. `word` keeps whichever
+/// surface form was tapped first, for display.
+model UserWordBank {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Surface form as first tapped, e.g. "climbing".
+  word String
+  /// Canonical base form; the deduplication key. e.g. "climb".
+  lemma String
+  /// Derivational root tying the family together. e.g. "climb".
+  root        String
+  translation String
+
+  /// NOUN, VERB, ADJECTIVE, ADVERB, OTHER, UNKNOWN — see src/config/wordBank.ts.
+  partOfSpeech String @default("UNKNOWN")
+  /// A1..C2 when the lemma is in the CEFR seed, else null.
+  cefrLevel String?
+  /// JSON-encoded WordForm[] (see services/morphology/inflect.ts). Stored as a
+  /// string rather than Json so there is exactly one validated parse path —
+  /// wordBankService.parseForms — instead of Prisma's loose JsonValue union.
+  forms String @default("[]")
+
+  /// The lyric line the word was captured from; powers fill-in-the-blank.
+  contextLine String?
+  /// Track the context line came from. SetNull so pruning a track from the
+  /// library never destroys vocabulary the learner already earned.
+  trackId String?
+  track   Track?  @relation(fields: [trackId], references: [id], onDelete: SetNull)
+
+  /// LEARNING, REVIEW, MASTERED. Projected from the SRS fields by
+  /// services/practice/srs.ts#deriveStatus — never set independently.
+  status String @default("LEARNING")
+
+  // --- SM-2 spaced repetition state ---
+  easeFactor     Float     @default(2.5)
+  intervalDays   Float     @default(0)
+  repetitions    Int       @default(0)
+  lapses         Int       @default(0)
+  dueAt          DateTime  @default(now())
+  lastReviewedAt DateTime?
+  attemptCount   Int       @default(0)
+  correctCount   Int       @default(0)
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  reviews   WordReview[]
+
+  @@unique([userId, lemma])
+  /// The due-queue query: "my words, soonest first".
+  @@index([userId, dueAt])
+}
+
+/// Append-only log of graded answers. Kept separate from the aggregate counters
+/// on UserWordBank so retention stats can be recomputed if the SRS is retuned.
+model WordReview {
+  id     String       @id @default(uuid())
+  wordId String
+  word   UserWordBank @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  /// MCQ_EN_TO_HE, MCQ_HE_TO_EN, FILL_BLANK, FORM_MATCH.
+  exerciseType String
+  correct      Boolean
+  /// SM-2 grade 0-5 actually applied to the schedule.
+  quality    Int
+  responseMs Int?
+  reviewedAt DateTime @default(now())
+
+  @@index([wordId, reviewedAt])
+}
+
+model UserTrackProgress {
+  id           String   @id @default(uuid())
+  userId       String
+  trackId      String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  track        Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  masteredPct  Float    @default(0.0)
+  lastPlayedAt DateTime @default(now())
+
+  @@unique([userId, trackId])
+}
+
+// Cache of machine translations (word taps + full-line translate) so the
+// player never re-hits the external translation API for the same text. Keyed by
+// the normalised source text + target language.
+model Translation {
+  id         String   @id @default(uuid())
+  source     String // normalised (trimmed, lower-cased) English source text
+  target     String // BCP-47 target, e.g. "he"
+  translated String
+  createdAt  DateTime @default(now())
+
+  @@unique([source, target])
+}

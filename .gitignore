@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+coverage/
+
+# Secrets. Patterns are unanchored so they also match backend/.env and any
+# backup copy (e.g. .env.backup-sqlserver), which holds the same credentials.
+.env
+.env.*
+!.env.example
+
+# Machine-local toolchain, NOT part of the project: the portable PostgreSQL
+# install, its data directory (a live database), and the Railway CLI. ~1 GB.
+tools/
+
+# Firebase deploy cache
+.firebase/
+
+# Local agent/skill tooling, not application code
+.agents/
+.claude/
+
+*.log
+npm-debug.log*
+
+.DS_Store
+Thumbs.db
+
+.idea/
+.vscode/*
+!.vscode/extensions.json

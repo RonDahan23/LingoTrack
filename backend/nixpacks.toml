@@ -1,0 +1,14 @@
+# Railway / Nixpacks build config for the LingoTrack backend.
+#
+# `--include=dev` is deliberate: tsc, prisma, and the @types packages live in
+# devDependencies but are needed to BUILD and to run migrations. If NODE_ENV is
+# set to "production" as a service variable, a plain `npm ci` would skip them and
+# the build would fail — this forces them in. (postinstall runs `prisma generate`.)
+[phases.install]
+cmds = ["npm ci --include=dev"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start"
