@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { clampToViewport, type Placement } from '../lib/popoverPosition';
 
 /** Save state of the tapped word, so the button can reflect progress. */
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -7,8 +8,10 @@ export interface WordPopover {
   word: string;
   translation: string | null; // null while loading
   error: string | null;
-  x: number; // viewport coords of the tapped word
-  y: number;
+  x: number; // viewport coords of the tapped word: horizontal centre,
+  y: number; // and its top edge
+  /** The word's bottom edge — used to flip the card below when it can't fit above. */
+  anchorBottom: number;
   /** The lyric line the word came from; stored with the word for practice. */
   contextLine: string;
   save: SaveState;
@@ -39,14 +42,41 @@ export function TranslationPopover({
   // Nothing to save until the translation has actually arrived.
   const canSave = popover.translation !== null && popover.save === 'idle';
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<Placement | null>(null);
+
+  // Measure the card and keep it inside the viewport. On a phone a word near
+  // either edge would otherwise be centred half off-screen, and a word on the
+  // first line would sit above the top. useLayoutEffect so the corrected
+  // position is committed before paint — no visible jump.
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = cardRef.current;
+      if (!el) return;
+      setPlacement(clampToViewport(el.getBoundingClientRect(), popover, window));
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+    // Re-measure when the content changes height (translation arrives, the save
+    // button appears, an error replaces the text).
+  }, [popover.x, popover.y, popover.anchorBottom, popover.translation, popover.error, popover.save]);
+
   return (
     <>
       {/* click-catcher */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
+        ref={cardRef}
         role="dialog"
-        className="fixed z-50 w-44 -translate-x-1/2 -translate-y-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 shadow-xl"
-        style={{ left: popover.x, top: popover.y - 8 }}
+        className="fixed z-50 w-44 max-w-[calc(100vw-1rem)] rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 shadow-xl"
+        style={
+          placement
+            ? { left: placement.left, top: placement.top }
+            : // First paint, before measurement: park it off-screen rather than
+              // flashing at an unclamped position.
+              { left: 0, top: 0, visibility: 'hidden' }
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-xs text-neutral-400">{popover.word}</p>

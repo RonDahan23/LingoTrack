@@ -9,7 +9,8 @@ interface DifficultyTabsProps {
 /// The three difficulty tabs. Full-width and equal on mobile.
 export function DifficultyTabs({ active, counts, onSelect }: DifficultyTabsProps) {
   return (
-    <div className="sticky top-14 z-10 border-b border-neutral-800 bg-surface/95 backdrop-blur">
+    // top-28 = below the h-14 header *and* the h-14 search bar above it.
+    <div className="sticky top-28 z-10 border-b border-neutral-800 bg-surface/95 backdrop-blur">
       <div className="mx-auto flex max-w-3xl" role="tablist">
         {DIFFICULTY_ORDER.map((level) => {
           const meta = DIFFICULTY_META[level];

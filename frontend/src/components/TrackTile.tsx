@@ -1,8 +1,18 @@
 import { Link } from 'react-router-dom';
 import { DIFFICULTY_META, type DifficultyLevel, type Track } from '../types/track';
 
+interface TrackTileProps {
+  track: Track;
+  /**
+   * Append the difficulty label after the artist. On by default in search
+   * results, where rows from all three buckets are interleaved and the colour
+   * of the score badge alone is ambiguous.
+   */
+  showLevel?: boolean;
+}
+
 /// One row in a difficulty list. The whole row links to the sync player.
-export function TrackTile({ track }: { track: Track }) {
+export function TrackTile({ track, showLevel = false }: TrackTileProps) {
   const meta = DIFFICULTY_META[track.difficultyLevel as DifficultyLevel] ?? null;
 
   return (
@@ -14,7 +24,15 @@ export function TrackTile({ track }: { track: Track }) {
 
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-white">{track.title}</p>
-        <p className="truncate text-sm text-neutral-400">{track.artist}</p>
+        <p className="truncate text-sm text-neutral-400">
+          {track.artist}
+          {showLevel && meta && (
+            <>
+              <span aria-hidden="true"> · </span>
+              <span className={meta.text}>{meta.label}</span>
+            </>
+          )}
+        </p>
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-neutral-700">
           <div
             className={`h-full ${meta?.bar ?? 'bg-neutral-500'}`}

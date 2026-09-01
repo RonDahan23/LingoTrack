@@ -112,6 +112,7 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
       error: null,
       x: anchor.left + anchor.width / 2,
       y: anchor.top,
+      anchorBottom: anchor.bottom,
       contextLine,
       save: 'idle',
     });

@@ -1,0 +1,55 @@
+# Render blueprint for the LingoTrack backend.
+#
+# The frontend is NOT here — it stays on Firebase Hosting. This defines only the
+# Express API; Postgres is hosted separately on Neon (Render's own free Postgres
+# expires after 30 days, Neon's free tier does not).
+#
+# Import via Render → New → Blueprint, pointed at this repo.
+services:
+  - type: web
+    name: lingotrack-backend
+    runtime: node
+    plan: free
+    # The API lives in a subdirectory of the repo.
+    rootDir: backend
+
+    # `--include=dev` is deliberate, same reasoning as nixpacks.toml: tsc and
+    # prisma live in devDependencies but are needed to BUILD and to run
+    # migrations. With NODE_ENV=production a plain `npm ci` would skip them and
+    # the build would fail.
+    buildCommand: npm ci --include=dev && npm run build
+    # `start` runs `prisma migrate deploy` before booting, so schema changes
+    # apply on every deploy.
+    startCommand: npm run start
+
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+
+      # The Firebase Hosting origin. Two roles: the post-login redirect target,
+      # and the allowed CORS origin for the SPA's API calls.
+      - key: WEB_APP_URL
+        value: https://lingotrack-7cb80.web.app
+
+      # sync:false = set by hand in the Render dashboard, never stored in git.
+      # DATABASE_URL is the Neon pooled connection string.
+      - key: DATABASE_URL
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      # Must equal https://<render-domain>/api/auth/callback, byte for byte,
+      # and be registered on the Spotify dashboard.
+      - key: SPOTIFY_REDIRECT_URI
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+
+    # PORT is injected by Render; src/config/env.ts reads it.

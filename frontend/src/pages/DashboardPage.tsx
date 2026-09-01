@@ -11,9 +11,15 @@ import { useAuth } from '../auth/AuthContext';
 import { AppHeader } from '../components/AppHeader';
 import { DifficultyTabs } from '../components/DifficultyTabs';
 import { ErrorState } from '../components/ErrorState';
+import { SearchBar } from '../components/SearchBar';
 import { Spinner } from '../components/Spinner';
 import { TrackTile } from '../components/TrackTile';
 import { ApiError } from '../lib/apiClient';
+import {
+  searchTracks,
+  totalTrackCount,
+  type TrackSearchResult,
+} from '../lib/trackSearch';
 import {
   DIFFICULTY_ORDER,
   type DifficultyLevel,
@@ -30,6 +36,7 @@ export function DashboardPage() {
   const { logout } = useAuth();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [active, setActive] = useState<DifficultyLevel>('BEGINNER');
+  const [query, setQuery] = useState('');
   const [syncNote, setSyncNote] = useState<string | null>(null);
 
   const [grade, setGrade] = useState<GradeStatus | null>(null);
@@ -114,6 +121,18 @@ export function DashboardPage() {
 
   const counts = useMemo(() => tabCounts(state), [state]);
 
+  // A non-empty query switches the list from "active tab" to "all buckets".
+  const isSearching = query.trim() !== '';
+  const results = useMemo(
+    () =>
+      state.status === 'ready' && isSearching
+        ? searchTracks(state.ranked, query)
+        : [],
+    [state, query, isSearching],
+  );
+  const searchedCount =
+    state.status === 'ready' ? totalTrackCount(state.ranked) : 0;
+
   return (
     <div className="min-h-dvh">
       <AppHeader
@@ -148,10 +167,15 @@ export function DashboardPage() {
         }
       />
 
-      <DifficultyTabs active={active} counts={counts} onSelect={setActive} />
+      <SearchBar value={query} onChange={setQuery} />
+
+      {/* While searching, results span every bucket, so the tabs don't apply. */}
+      {!isSearching && (
+        <DifficultyTabs active={active} counts={counts} onSelect={setActive} />
+      )}
 
       <div className="mx-auto max-w-3xl px-4">
-        <GradeBanner grade={grade} onAnalyze={onAnalyze} />
+        {!isSearching && <GradeBanner grade={grade} onAnalyze={onAnalyze} />}
         {syncNote && <p className="pt-3 text-sm text-brand">{syncNote}</p>}
       </div>
 
@@ -160,9 +184,16 @@ export function DashboardPage() {
         {state.status === 'error' && (
           <ErrorState message={state.message} onRetry={() => load()} />
         )}
-        {state.status === 'ready' && (
-          <TrackListView tracks={state.ranked.levels[active]?.tracks ?? []} />
-        )}
+        {state.status === 'ready' &&
+          (isSearching ? (
+            <SearchResultsView
+              results={results}
+              query={query.trim()}
+              searchedCount={searchedCount}
+            />
+          ) : (
+            <TrackListView tracks={state.ranked.levels[active]?.tracks ?? []} />
+          ))}
       </main>
     </div>
   );
@@ -203,6 +234,44 @@ function GradeBanner({
         ? 'Analyze again — fetch lyrics for any new songs'
         : 'Analyze my library — fetch lyrics & grade all songs'}
     </button>
+  );
+}
+
+function SearchResultsView({
+  results,
+  query,
+  searchedCount,
+}: {
+  results: TrackSearchResult[];
+  query: string;
+  searchedCount: number;
+}) {
+  if (results.length === 0) {
+    return (
+      <div className="py-16 text-center text-neutral-400">
+        <p className="font-medium text-neutral-300">No songs match “{query}”</p>
+        <p className="mt-1 text-sm">
+          Searched all {searchedCount} graded {searchedCount === 1 ? 'song' : 'songs'}{' '}
+          by title and artist. Songs still awaiting analysis aren't searchable yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <p className="pb-2 text-sm text-neutral-400" aria-live="polite">
+        {results.length} {results.length === 1 ? 'result' : 'results'} across all
+        levels
+      </p>
+      <ul className="flex flex-col gap-2">
+        {results.map(({ track }) => (
+          <li key={track.id}>
+            <TrackTile track={track} showLevel />
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
