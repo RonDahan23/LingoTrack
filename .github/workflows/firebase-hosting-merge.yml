@@ -11,7 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Without this the build falls back to http://localhost:3000 (see
+      # frontend/src/config.ts) and the deployed SPA cannot reach the API.
+      # Not a secret: it is a public URL, already baked into the shipped JS.
       - run: cd frontend && npm ci && npm run build
+        env:
+          VITE_API_BASE_URL: https://lingotrack-backend.onrender.com
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

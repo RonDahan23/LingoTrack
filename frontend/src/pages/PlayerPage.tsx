@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchTrack, prepareTrack } from '../api/tracks';
 import { translateToHebrew } from '../api/translate';
+import { translationError } from '../lib/translationError';
 import { captureWord } from '../api/wordBank';
 import { AppHeader } from '../components/AppHeader';
 import { ErrorState } from '../components/ErrorState';
@@ -120,8 +121,9 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
       const translation = await translateToHebrew(word);
       // Guard against a stale response for a word the learner already moved off.
       setPopover((p) => (p && p.word === word ? { ...p, translation } : p));
-    } catch {
-      setPopover((p) => (p ? { ...p, error: 'Translation failed' } : p));
+    } catch (err) {
+      const error = translationError(err);
+      setPopover((p) => (p && p.word === word ? { ...p, error } : p));
     }
   }, []);
 
@@ -156,8 +158,9 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
       try {
         const translation = await translateToHebrew(text);
         setLineTx((cur) => (cur && cur.index === index ? { ...cur, text: translation } : cur));
-      } catch {
-        setLineTx((cur) => (cur ? { ...cur, error: 'Translation failed' } : cur));
+      } catch (err) {
+        const error = translationError(err);
+        setLineTx((cur) => (cur && cur.index === index ? { ...cur, error } : cur));
       }
     },
     [player],

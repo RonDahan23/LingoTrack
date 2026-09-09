@@ -7,17 +7,22 @@ import { issueSessionToken } from '../src/services/sessionService.js';
 import { encryptSecret } from '../src/lib/crypto.js';
 
 /**
- * Exercises /api/translate against the real DB with MyMemory stubbed, and
- * verifies the cache: a second identical request must NOT hit the API again.
+ * Exercises /api/translate against the real DB with both upstream providers
+ * stubbed. Covers the cache (a second identical request must NOT hit the API
+ * again) and the fallback chain (Google down => Lingva answers).
  */
 
 const SPOTIFY_ID = 'itest-translate-user';
 const SOURCE = 'hello world';
+const FALLBACK_SOURCE = 'good night';
 
 let server: Server;
 let baseUrl: string;
 let auth: { Authorization: string };
-let apiCalls = 0;
+let googleCalls = 0;
+let lingvaCalls = 0;
+/** Flipped per-test to simulate the primary provider being unavailable. */
+let googleDown = false;
 
 const realFetch = globalThis.fetch;
 
@@ -33,18 +38,31 @@ beforeAll(async () => {
   });
   auth = { Authorization: `Bearer ${issueSessionToken(user.id)}` };
 
-  await prisma.translation.deleteMany({ where: { source: SOURCE, target: 'he' } });
+  await prisma.translation.deleteMany({
+    where: { source: { in: [SOURCE, FALLBACK_SOURCE] }, target: 'he' },
+  });
 
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url.includes('127.0.0.1')) return realFetch(input, init);
-    if (url.includes('api.mymemory.translated.net')) {
-      apiCalls++;
-      return new Response(
-        JSON.stringify({ responseStatus: 200, responseData: { translatedText: 'שלום עולם' } }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+
+    if (url.includes('translate.googleapis.com')) {
+      googleCalls++;
+      if (googleDown) return new Response('rate limited', { status: 429 });
+      return new Response(JSON.stringify([[['שלום עולם', 'hello world', null, null, 3]], null, 'en']), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
+
+    if (url.includes('lingva.ml')) {
+      lingvaCalls++;
+      return new Response(JSON.stringify({ translation: 'לילה טוב' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     throw new Error(`Unexpected fetch: ${url}`);
   });
 
@@ -54,7 +72,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.translation.deleteMany({ where: { source: SOURCE, target: 'he' } });
+  await prisma.translation.deleteMany({
+    where: { source: { in: [SOURCE, FALLBACK_SOURCE] }, target: 'he' },
+  });
   await prisma.user.deleteMany({ where: { spotifyId: SPOTIFY_ID } });
   vi.unstubAllGlobals();
   server.close();
@@ -73,20 +93,36 @@ describe('GET /api/translate', () => {
   });
 
   it('translates to Hebrew, then serves the second call from cache', async () => {
-    const before = apiCalls;
+    const before = googleCalls;
 
     const first = await fetch(`${baseUrl}/api/translate?text=${encodeURIComponent(SOURCE)}`, {
       headers: auth,
     });
     expect(first.status).toBe(200);
     expect((await first.json()).translation).toBe('שלום עולם');
-    expect(apiCalls).toBe(before + 1);
+    expect(googleCalls).toBe(before + 1);
 
     // Same text (different casing/spacing normalises to the same key) → cached.
     const second = await fetch(`${baseUrl}/api/translate?text=${encodeURIComponent('Hello   World')}`, {
       headers: auth,
     });
     expect((await second.json()).translation).toBe('שלום עולם');
-    expect(apiCalls).toBe(before + 1); // no new API call
+    expect(googleCalls).toBe(before + 1); // no new API call
+  });
+
+  it('falls back to the second provider when the primary is rate-limited', async () => {
+    googleDown = true;
+    const beforeFallback = lingvaCalls;
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/translate?text=${encodeURIComponent(FALLBACK_SOURCE)}`,
+        { headers: auth },
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()).translation).toBe('לילה טוב');
+      expect(lingvaCalls).toBe(beforeFallback + 1);
+    } finally {
+      googleDown = false;
+    }
   });
 });

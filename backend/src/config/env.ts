@@ -32,6 +32,11 @@ const envSchema = z.object({
 
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(720),
 
+  // Optional contact address sent to MyMemory as `de`, which raises its
+  // anonymous per-IP daily quota. Only affects the fallback translation
+  // provider; unset is fine.
+  MYMEMORY_EMAIL: z.string().email('MYMEMORY_EMAIL must be an email address').optional(),
+
   // Origin of the Flutter Web app. Two roles:
   //   1. /api/auth/callback redirects the browser here with ?token= (or ?error=)
   //      once the session token is minted — the SPA reads it from its own URL.
