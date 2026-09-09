@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   TranslationError,
   createMyMemoryProvider,
+  decodeHtmlEntities,
+  googleMobileProvider,
   googleProvider,
-  lingvaProvider,
+  parseGoogleMobileResponse,
   parseGoogleResponse,
-  parseLingvaResponse,
   parseMyMemoryResponse,
 } from '../src/services/translation/providers.js';
 
@@ -43,14 +44,32 @@ describe('parseGoogleResponse', () => {
   });
 });
 
-describe('parseLingvaResponse', () => {
-  it('reads the translation field', () => {
-    expect(parseLingvaResponse({ translation: 'בשעות הלילה', info: {} })).toBe('בשעות הלילה');
+describe('parseGoogleMobileResponse', () => {
+  const page = (inner: string) =>
+    `<html><body><div class="result-container">${inner}</div></body></html>`;
+
+  it('pulls the translation out of the result container', () => {
+    expect(parseGoogleMobileResponse(page('בשעות הלילה'))).toBe('בשעות הלילה');
   });
 
-  it('returns empty for an error body or a missing field', () => {
-    expect(parseLingvaResponse({ error: 'Invalid target language' })).toBe('');
-    expect(parseLingvaResponse(null)).toBe('');
+  it('decodes HTML entities in the scraped text', () => {
+    // The page is HTML, so an apostrophe arrives escaped.
+    expect(parseGoogleMobileResponse(page('it&#39;s &amp; more'))).toBe("it's & more");
+  });
+
+  it('returns empty when the container is absent, so the chain moves on', () => {
+    // A markup change must degrade to the next provider, not throw.
+    expect(parseGoogleMobileResponse('<html><body>challenge page</body></html>')).toBe('');
+  });
+});
+
+describe('decodeHtmlEntities', () => {
+  it('handles named, decimal and hex entities', () => {
+    expect(decodeHtmlEntities('&amp; &#39; &#x27; &quot;')).toBe(`& ' ' "`);
+  });
+
+  it('leaves an unknown entity untouched rather than mangling it', () => {
+    expect(decodeHtmlEntities('&bogus; text')).toBe('&bogus; text');
   });
 });
 
@@ -138,21 +157,19 @@ describe('provider HTTP handling', () => {
     expect(urls[0]).toContain('de=a%40b.com');
     expect(urls[1]).not.toContain('de=');
   });
-  it('url-encodes the source into the path segment', async () => {
-    // Lingva takes the text as a path segment, so an unencoded comma or space
-    // from a lyric line would corrupt the URL.
+  it('query-encodes the source for the mobile endpoint', async () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
       urls.push(String(input));
-      return new Response(JSON.stringify({ translation: 'אה כן' }), {
+      return new Response('<div class="result-container">אה כן</div>', {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/html' },
       });
     });
 
-    await lingvaProvider.translate("Oh, yeah, I'll tell you", 'he');
-    expect(urls[0]).toBe(
-      "https://lingva.ml/api/v1/en/he/Oh%2C%20yeah%2C%20I'll%20tell%20you",
-    );
+    const text = await googleMobileProvider.translate("Oh, yeah, I'll tell you", 'he');
+    expect(text).toBe('אה כן');
+    expect(urls[0]).toContain('q=Oh%2C+yeah%2C+I%27ll+tell+you');
+    expect(urls[0]).toContain('tl=he');
   });
 });

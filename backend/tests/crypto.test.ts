@@ -22,9 +22,13 @@ describe('token encryption', () => {
   it('rejects a tampered ciphertext rather than returning garbage', () => {
     const payload = encryptSecret('original');
     const parts = payload.split('.');
-    // Flip the last character of the ciphertext segment.
+    // Flip the FIRST character of the ciphertext segment, not the last: this
+    // payload's ciphertext is 8 bytes, which base64url-encodes to 11 chars
+    // whose final char carries only 2 significant bits. Flipping that one
+    // landed in the unused padding bits ~7% of the time, leaving the bytes
+    // identical and the test intermittently red.
     const data = parts[3] as string;
-    parts[3] = (data.slice(0, -1) + (data.endsWith('A') ? 'B' : 'A'));
+    parts[3] = (data.startsWith('A') ? 'B' : 'A') + data.slice(1);
 
     expect(() => decryptSecret(parts.join('.'))).toThrow();
   });

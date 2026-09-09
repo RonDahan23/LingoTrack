@@ -3,8 +3,8 @@ import { env } from '../config/env.js';
 import {
   TranslationError,
   createMyMemoryProvider,
+  googleMobileProvider,
   googleProvider,
-  lingvaProvider,
   looksLikeProviderWarning,
   type TranslationProvider,
 } from './translation/providers.js';
@@ -28,8 +28,8 @@ const MAX_SOURCE_LENGTH = 500;
 export { TranslationError };
 
 const providers: TranslationProvider[] = [
+  googleMobileProvider,
   googleProvider,
-  lingvaProvider,
   createMyMemoryProvider(env.MYMEMORY_EMAIL),
 ];
 
