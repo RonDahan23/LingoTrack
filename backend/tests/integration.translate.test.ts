@@ -7,9 +7,10 @@ import { issueSessionToken } from '../src/services/sessionService.js';
 import { encryptSecret } from '../src/lib/crypto.js';
 
 /**
- * Exercises /api/translate against the real DB with both upstream providers
+ * Exercises /api/translate against the real DB with every upstream provider
  * stubbed. Covers the cache (a second identical request must NOT hit the API
- * again) and the fallback chain (google-mobile down => gtx answers).
+ * again) and the fallback chain (both google-dict hosts down => google-mobile
+ * answers).
  */
 
 const SPOTIFY_ID = 'itest-translate-user';
@@ -19,10 +20,10 @@ const FALLBACK_SOURCE = 'good night';
 let server: Server;
 let baseUrl: string;
 let auth: { Authorization: string };
+let dictCalls = 0;
 let mobileCalls = 0;
-let gtxCalls = 0;
-/** Flipped per-test to simulate the primary provider being unavailable. */
-let mobileDown = false;
+/** Flipped per-test to simulate the leading provider being unavailable. */
+let dictDown = false;
 
 const realFetch = globalThis.fetch;
 
@@ -46,20 +47,21 @@ beforeAll(async () => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url.includes('127.0.0.1')) return realFetch(input, init);
 
-    if (url.includes('translate.google.com/m')) {
-      mobileCalls++;
-      if (mobileDown) return new Response('rate limited', { status: 429 });
-      return new Response('<div class="result-container">שלום עולם</div>', {
+    // Both dict hosts are the same provider, so they rise and fall together.
+    if (url.includes('client=dict-chrome-ex')) {
+      dictCalls++;
+      if (dictDown) return new Response('Sorry...', { status: 429 });
+      return new Response(JSON.stringify(['שלום עולם']), {
         status: 200,
-        headers: { 'Content-Type': 'text/html' },
+        headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    if (url.includes('translate.googleapis.com')) {
-      gtxCalls++;
-      return new Response(JSON.stringify([[['לילה טוב', 'good night', null, null, 3]], null, 'en']), {
+    if (url.includes('translate.google.com/m')) {
+      mobileCalls++;
+      return new Response('<div class="result-container">לילה טוב</div>', {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/html' },
       });
     }
 
@@ -93,26 +95,29 @@ describe('GET /api/translate', () => {
   });
 
   it('translates to Hebrew, then serves the second call from cache', async () => {
-    const before = mobileCalls;
+    const before = dictCalls;
 
     const first = await fetch(`${baseUrl}/api/translate?text=${encodeURIComponent(SOURCE)}`, {
       headers: auth,
     });
     expect(first.status).toBe(200);
     expect((await first.json()).translation).toBe('שלום עולם');
-    expect(mobileCalls).toBe(before + 1);
+    expect(dictCalls).toBe(before + 1);
 
     // Same text (different casing/spacing normalises to the same key) → cached.
     const second = await fetch(`${baseUrl}/api/translate?text=${encodeURIComponent('Hello   World')}`, {
       headers: auth,
     });
     expect((await second.json()).translation).toBe('שלום עולם');
-    expect(mobileCalls).toBe(before + 1); // no new API call
+    expect(dictCalls).toBe(before + 1); // no new API call
   });
 
-  it('falls back to the second provider when the primary is rate-limited', async () => {
-    mobileDown = true;
-    const beforeFallback = gtxCalls;
+  it('falls back down the chain when the leading provider is rate-limited', async () => {
+    // The production failure: a 429 from the fastest path must not surface as
+    // "Translation service is busy" while a later provider would have answered.
+    dictDown = true;
+    const beforeDict = dictCalls;
+    const beforeFallback = mobileCalls;
     try {
       const res = await fetch(
         `${baseUrl}/api/translate?text=${encodeURIComponent(FALLBACK_SOURCE)}`,
@@ -120,9 +125,11 @@ describe('GET /api/translate', () => {
       );
       expect(res.status).toBe(200);
       expect((await res.json()).translation).toBe('לילה טוב');
-      expect(gtxCalls).toBe(beforeFallback + 1);
+      // Both dict hosts are tried before the chain moves on.
+      expect(dictCalls).toBe(beforeDict + 2);
+      expect(mobileCalls).toBe(beforeFallback + 1);
     } finally {
-      mobileDown = false;
+      dictDown = false;
     }
   });
 });

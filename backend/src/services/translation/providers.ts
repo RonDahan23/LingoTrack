@@ -5,10 +5,15 @@
  *
  * What each one is, and how it fails:
  *
+ *  - **Google dict** (`translate_a/t?client=dict-chrome-ex`, the endpoint
+ *    Chrome's own translate feature uses) returns a tiny JSON array and is
+ *    metered in a *different quota bucket* from the two below: it answered 12
+ *    concurrent requests from an address where both `gtx` and the mobile page
+ *    were already returning 429. It is served from two hosts, listed as two
+ *    entries, so losing one host is not losing the provider.
  *  - **Google mobile** (`translate.google.com/m`) returns an HTML page meant
- *    for feature phones. It is by far the most *available* of the three: it
- *    kept answering from an address where `gtx` was already handing out 429s.
- *    The cost is that it is scraped, so a markup change would break it.
+ *    for feature phones. It outlasts `gtx` on a busy address, but it is
+ *    scraped, so a markup change would break it.
  *  - **Google gtx** returns clean JSON and needs no scraping, but rate-limits
  *    hard per IP — a handful of calls from one address earns 429s for a while.
  *    A datacenter IP shared with other tenants is usually already over.
@@ -16,17 +21,18 @@
  *    limit, so it tends to be available exactly when the Google paths are not.
  *
  * Order matters: the most available provider goes first so the common case
- * costs one request, and the two behind it fail for unrelated reasons (markup
- * change vs. burst quota vs. daily quota). A community proxy (Lingva) was
- * tried here and removed — every public instance sat behind a Cloudflare bot
- * challenge, which is precisely how a datacenter IP gets treated.
+ * costs one request, and the ones behind it fail for unrelated reasons (wrong
+ * quota bucket vs. markup change vs. burst quota vs. daily quota). A community
+ * proxy (Lingva) was tried here and removed — every public instance sat behind
+ * a Cloudflare bot challenge, which is precisely how a datacenter IP gets
+ * treated.
  */
 
 /** A provider failed. Carries the provider name so the 502 body says which. */
 export class TranslationError extends Error {}
 
 /** Don't let one hung provider hold the request open — fall through instead.
- *  Kept short because up to three providers are tried in series. */
+ *  Kept short because every provider in the chain is tried in series. */
 const REQUEST_TIMEOUT_MS = 6_000;
 
 export interface TranslationProvider {
@@ -57,6 +63,68 @@ async function getJson(url: string, provider: string): Promise<unknown> {
   } catch {
     throw new TranslationError(`${provider} returned a non-JSON body`);
   }
+}
+
+/* ------------------------------------------------------------- Google dict */
+
+/**
+ * The `dict-chrome-ex` client returns the translation as a bare array of
+ * strings — `["כרכים"]` — one entry per sentence.
+ *
+ * The check is "every element is a string", not "the first one is": the same
+ * host also serves the `gtx` envelope (`[[["translated","source"]], null,
+ * "en"]`), whose trailing element is the detected *language tag*. Accepting
+ * that loosely would cache `"en"` as though it were the Hebrew translation, so
+ * a gtx-shaped body is handed to its own parser instead. Anything else yields
+ * `''` and the chain moves on rather than throwing.
+ */
+export function parseGoogleDictResponse(body: unknown): string {
+  if (Array.isArray(body) && body.length > 0 && body.every((e) => typeof e === 'string')) {
+    return (body as string[]).join('').trim();
+  }
+
+  // gtx envelope served from the same host.
+  if (Array.isArray(body) && Array.isArray(body[0])) return parseGoogleResponse(body);
+
+  const sentences = (body as { sentences?: unknown })?.sentences;
+  if (Array.isArray(sentences)) {
+    return sentences
+      .map((part) =>
+        typeof (part as { trans?: unknown })?.trans === 'string'
+          ? (part as { trans: string }).trans
+          : '',
+      )
+      .join('')
+      .trim();
+  }
+
+  return '';
+}
+
+/**
+ * Both hosts serve the same endpoint. They are registered as separate
+ * providers so a DNS or edge failure on one still leaves the other in the
+ * chain — they are the cheapest entries in it, failing in well under a second.
+ */
+export function createGoogleDictProvider(host: string): TranslationProvider {
+  const name = `google-dict(${host.split('.')[0]})`;
+
+  return {
+    name,
+    async translate(source, target) {
+      const params = new URLSearchParams({
+        client: 'dict-chrome-ex',
+        sl: 'en',
+        tl: target,
+        q: source,
+      });
+      const body = await getJson(`https://${host}/translate_a/t?${params.toString()}`, name);
+
+      const text = parseGoogleDictResponse(body);
+      if (!text) throw new TranslationError(`${name} returned no translation`);
+      return text;
+    },
+  };
 }
 
 /* ----------------------------------------------------------- Google mobile */

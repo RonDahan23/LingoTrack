@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import {
   TranslationError,
+  createGoogleDictProvider,
   createMyMemoryProvider,
   googleMobileProvider,
   googleProvider,
@@ -27,7 +28,16 @@ const MAX_SOURCE_LENGTH = 500;
 
 export { TranslationError };
 
+/**
+ * Ordered by observed availability, not output quality — the Google entries
+ * return identical text. The `dict-chrome-ex` endpoint leads because it is
+ * metered separately from the other two Google paths and kept answering from
+ * an address that was already 429ing both of them; that exact combination is
+ * what surfaced as "Translation service is busy" in the player.
+ */
 const providers: TranslationProvider[] = [
+  createGoogleDictProvider('clients5.google.com'),
+  createGoogleDictProvider('translate.googleapis.com'),
   googleMobileProvider,
   googleProvider,
   createMyMemoryProvider(env.MYMEMORY_EMAIL),

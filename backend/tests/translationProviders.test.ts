@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   TranslationError,
+  createGoogleDictProvider,
   createMyMemoryProvider,
   decodeHtmlEntities,
   googleMobileProvider,
   googleProvider,
+  parseGoogleDictResponse,
   parseGoogleMobileResponse,
   parseGoogleResponse,
   parseMyMemoryResponse,
@@ -18,6 +20,35 @@ import {
  */
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('parseGoogleDictResponse', () => {
+  it('reads the bare string array the dict endpoint actually returns', () => {
+    expect(parseGoogleDictResponse(['כרכים'])).toBe('כרכים');
+  });
+
+  it('joins every sentence, so a long line is not truncated', () => {
+    expect(parseGoogleDictResponse(['חלק ראשון ', 'חלק שני'])).toBe('חלק ראשון חלק שני');
+  });
+
+  it('also accepts the sentences shape from the same endpoint', () => {
+    expect(parseGoogleDictResponse({ sentences: [{ trans: 'שלום' }] })).toBe('שלום');
+  });
+
+  it('hands a gtx-shaped body to the gtx parser instead of reading its language tag', () => {
+    // The trailing 'en' is the detected language, not a translation — parsing
+    // this loosely would cache "en" as though it were Hebrew.
+    const gtx = [[['לילה טוב', 'good night', null, null, 3]], null, 'en'];
+    expect(parseGoogleDictResponse(gtx)).toBe('לילה טוב');
+  });
+
+  it('returns empty for an unexpected shape rather than throwing', () => {
+    // A shape change must hand off to the next provider, not crash the request.
+    expect(parseGoogleDictResponse(null)).toBe('');
+    expect(parseGoogleDictResponse({ error: 'nope' })).toBe('');
+    expect(parseGoogleDictResponse([42])).toBe('');
+    expect(parseGoogleDictResponse([])).toBe('');
+  });
+});
 
 describe('parseGoogleResponse', () => {
   it('reads the translation out of the nested array', () => {
@@ -127,6 +158,30 @@ describe('parseMyMemoryResponse', () => {
 });
 
 describe('provider HTTP handling', () => {
+  it('calls the dict endpoint with the chrome client and names its host in failures', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify(['כרכים']), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const provider = createGoogleDictProvider('clients5.google.com');
+    expect(await provider.translate('volumes', 'he')).toBe('כרכים');
+    expect(urls[0]).toContain('https://clients5.google.com/translate_a/t?');
+    expect(urls[0]).toContain('client=dict-chrome-ex');
+    expect(urls[0]).toContain('tl=he');
+  });
+
+  it('falls through when the dict endpoint is rate-limited', async () => {
+    // The 429 that the two older Google paths were returning in production.
+    vi.stubGlobal('fetch', async () => new Response('Sorry...', { status: 429 }));
+    await expect(createGoogleDictProvider('translate.googleapis.com').translate('hi', 'he'))
+      .rejects.toThrow(/google-dict\(translate\) returned 429/);
+  });
+
   it('wraps a network failure as a TranslationError', async () => {
     vi.stubGlobal('fetch', async () => {
       throw new Error('ECONNREFUSED');
