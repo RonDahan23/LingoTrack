@@ -108,11 +108,24 @@ async function cachedSenses(lemma: string): Promise<WordSenses> {
  *    right entry for both: "believer" -> מַאֲמִין (against the lemma's
  *    לְהֶאֱמִין, *to believe*), "bigger" -> גָדוֹל.
  *
- * -ing is deliberately excluded: there the dictionary goes the other way and
- * lists the gerund NOUN ("running" -> רִיצָה, "singing" -> שִׁירָה), where the
- * lemma's verb sense is the useful one.
+ * -ing needs the extra test in `primarySenseIsAdjective`, because it splits
+ * both ways: "willing" -> מוּכָן, "boring" -> מְשַׁעֲמֵם and "exciting" ->
+ * מְרַגֵשׁ are adjectives in their own right, while "running" -> רִיצָה and
+ * "singing" -> שִׁירָה are gerund nouns where the lemma's verb sense is what
+ * a learner wants. The dictionary's own ordering separates them: it lists the
+ * adjective group first for the former and the noun group first for the
+ * latter. Reducing "willing" to "will" gave רָצוֹן, the noun *will*.
  */
 const SURFACE_PREFERRED = /(?:ed|en|er)$/;
+const GERUND = /ing$/;
+
+/**
+ * True when the dictionary considers this word an adjective before anything
+ * else. Used only for -ing forms; `senses` is ordered by Google, not by us.
+ */
+function primarySenseIsAdjective(senses: WordSenses): boolean {
+  return senses.senses[0]?.pos === 'ADJECTIVE';
+}
 
 /**
  * Uses the dictionary itself to check that the lemma is a real word.
@@ -135,6 +148,11 @@ async function resolveSenses(
   if (lemma !== surface && SURFACE_PREFERRED.test(surface)) {
     const fromSurface = await cachedSenses(surface);
     if (fromSurface.senses.length > 0) return { lemma: surface, senses: fromSurface };
+  }
+
+  if (lemma !== surface && GERUND.test(surface)) {
+    const fromSurface = await cachedSenses(surface);
+    if (primarySenseIsAdjective(fromSurface)) return { lemma: surface, senses: fromSurface };
   }
 
   const senses = await cachedSenses(lemma);

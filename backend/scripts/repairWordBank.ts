@@ -32,6 +32,47 @@ import { serializeForms } from '../src/services/wordBankService.js';
 const HEBREW = /[֐-׿]/;
 const apply = process.argv.includes('--apply');
 
+/**
+ * Normalises Hebrew for comparison: drops vowel points and cantillation,
+ * removes a parenthetical transliteration ("לשכב (Lish'kav)"), and collapses
+ * whitespace. Stored values come from several generations of the translation
+ * code, so the same word can be spelled with or without nikud.
+ */
+function normaliseHebrew(text: string): string {
+  return text
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[֑-ׇ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when the stored translation is already one of the dictionary's own
+ * senses for this word, so there is no reason to overwrite it.
+ *
+ * This is what keeps "lay" alone. Its lemma is "lie", whose verb senses are
+ * [לְשַׁקֵר, לִשְׁכַּב, …] — *to tell an untruth* first, *to recline* second.
+ * The stored לשכב is correct for "and you, you'd lay", and picking the
+ * dictionary's first entry would have replaced it with לשקר. Nothing in the
+ * part of speech distinguishes the two; both are verbs. So when the value on
+ * record is a legitimate sense, it is left as it is.
+ *
+ * Scoped to the inferred part of speech when there is one — without that, the
+ * NOUN sense דִמעָה stored against the verb "tore" would also look legitimate
+ * and survive, which is the bug this script exists to fix. With no part of
+ * speech to go on, every sense counts, since there is no evidence to overrule
+ * what is already there.
+ */
+function isKnownSense(
+  stored: string,
+  senses: readonly { pos: string; translations: string[] }[],
+  pos: string,
+): boolean {
+  const scoped = pos === 'UNKNOWN' || pos === 'OTHER' ? senses : senses.filter((s) => s.pos === pos);
+  const target = normaliseHebrew(stored);
+  return scoped.some((group) => group.translations.some((t) => normaliseHebrew(t) === target));
+}
+
 async function main() {
   const rows = await prisma.userWordBank.findMany({
     select: {
@@ -64,14 +105,16 @@ async function main() {
       continue;
     }
 
-    let translation: string;
+    let lookup: Awaited<ReturnType<typeof lookupWord>>;
     try {
-      translation = (await lookupWord(row.word, row.contextLine)).translation;
+      lookup = await lookupWord(row.word, row.contextLine);
     } catch (err) {
       console.log(`  SKIP  ${row.word}: lookup failed (${(err as Error).message})`);
       skipped += 1;
       continue;
     }
+
+    const translation = lookup.translation;
 
     if (!HEBREW.test(translation)) {
       console.log(`  SKIP  ${row.word}: still not Hebrew ("${translation}")`);
@@ -79,9 +122,19 @@ async function main() {
       continue;
     }
 
+    // Never overwrite a meaning that is already right. Within one part of
+    // speech the dictionary's ranking is not evidence, so a stored value that
+    // is a legitimate sense stays.
+    const storedIsValid =
+      HEBREW.test(row.translation) &&
+      isKnownSense(row.translation, lookup.senses, lookup.partOfSpeech);
+
     const lemmaChanged = enrichment.lemma !== row.lemma;
-    const translationChanged = translation !== row.translation;
+    const translationChanged = translation !== row.translation && !storedIsValid;
     if (!lemmaChanged && !translationChanged) {
+      if (storedIsValid && translation !== row.translation) {
+        console.log(`  KEEP  ${row.word}: "${row.translation}" is already a valid sense`);
+      }
       unchanged += 1;
       continue;
     }
@@ -119,7 +172,9 @@ async function main() {
           partOfSpeech: enrichment.partOfSpeech,
           cefrLevel: enrichment.cefrLevel,
           forms: serializeForms(enrichment.forms),
-          translation,
+          // A valid stored meaning survives even when the family around it is
+          // being rebuilt.
+          translation: storedIsValid ? row.translation : translation,
         },
       });
     }
