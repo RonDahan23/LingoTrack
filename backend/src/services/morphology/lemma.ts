@@ -157,16 +157,30 @@ function lemmatizeNoun(word: string): string {
   return word;
 }
 
+/**
+ * Comparative and superlative reduction.
+ *
+ * Unlike the verb rules, this one does NOT guess a stem: `-er` is only a
+ * comparative ending if what remains is a real word. English is full of words
+ * that merely end in those letters, and inventing a stem for them produced
+ * nonsense that went all the way to the UI — "conquer" became "conqu", which
+ * was then handed to the translator, which echoed it straight back, which got
+ * cached and served as the correct answer in a Hebrew quiz. "water" → "wat",
+ * "remember" → "rememb" and "under" → "und" were the same bug.
+ *
+ * This is the posture `deriveRoot` already takes ("only accepts a stripped
+ * candidate that's a known word"); the two now agree. A genuine comparative
+ * whose stem is missing from the lexicon simply stays whole, which costs a
+ * little accuracy and cannot produce a non-word.
+ */
 function lemmatizeAdjective(word: string): string {
   if (word.endsWith('iest') && word.length > 5) return `${word.slice(0, -4)}y`;
   if (word.endsWith('ier') && word.length > 4) return `${word.slice(0, -3)}y`;
   if (word.endsWith('est') && word.length > 4) {
-    const stem = word.slice(0, -3);
-    return firstKnown(vowelSuffixCandidates(stem)) ?? bestGuessStem(stem);
+    return firstKnown(vowelSuffixCandidates(word.slice(0, -3))) ?? word;
   }
   if (word.endsWith('er') && word.length > 3) {
-    const stem = word.slice(0, -2);
-    return firstKnown(vowelSuffixCandidates(stem)) ?? bestGuessStem(stem);
+    return firstKnown(vowelSuffixCandidates(word.slice(0, -2))) ?? word;
   }
   return word;
 }

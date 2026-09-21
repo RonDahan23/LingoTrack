@@ -157,16 +157,36 @@ export function blankOutWord(
 // Per-type builders. Each returns null when the word can't support the type.
 // ---------------------------------------------------------------------------
 
+/**
+ * A translation that carries no Hebrew cannot anchor a translation question:
+ * the answer would be English among Hebrew distractors, which both gives the
+ * answer away and teaches the wrong thing. It happened — a lemmatizer bug
+ * asked the translator for "conqu", the translator echoed it, and the echo was
+ * stored and then served as the correct answer.
+ *
+ * The write paths are guarded now, but rows saved before that are still in
+ * people's word banks, so the quiz refuses to build on one rather than trusting
+ * the column. Such a word simply yields fewer exercise types, exactly like a
+ * word with no usable context.
+ */
+const HEBREW = /[֐-׿]/;
+
+function hasHebrew(text: string): boolean {
+  return HEBREW.test(text);
+}
+
 function mcqEnToHe(
   word: PracticeWord,
   pool: readonly PracticeWord[],
   extra: readonly { word: string; translation: string }[],
   rng: () => number,
 ): Exercise | null {
+  if (!hasHebrew(word.translation)) return null;
+
   const candidates = [
     ...pool.filter((w) => w.id !== word.id).map((w) => w.translation),
     ...extra.map((e) => e.translation),
-  ];
+  ].filter(hasHebrew);
   const built = buildOptions(word.translation, candidates, rng);
   if (!built) return null;
   return {
@@ -187,6 +207,9 @@ function mcqHeToEn(
   extra: readonly { word: string; translation: string }[],
   rng: () => number,
 ): Exercise | null {
+  // The PROMPT is the Hebrew here, so it has to be real Hebrew too.
+  if (!hasHebrew(word.translation)) return null;
+
   const candidates = [
     ...pool.filter((w) => w.id !== word.id).map((w) => w.word),
     ...extra.map((e) => e.word),

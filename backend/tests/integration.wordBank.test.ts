@@ -23,9 +23,20 @@ let userId: string;
 
 const realFetch = globalThis.fetch;
 
-/** Deterministic fake Hebrew so option lists stay distinct per source word. */
+/**
+ * Deterministic fake Hebrew so option lists stay distinct per source word.
+ *
+ * Must be real Hebrew script: a "translation" carrying no Hebrew is now
+ * treated as the provider echoing the source back and is refused, which is
+ * what stopped "conquer" -> "conqu" reaching a quiz. The old fixture returned
+ * `he:climb`, which that guard correctly rejects.
+ */
+const HEBREW_ALPHABET = 'אבגדהוזחטיכלמנסעפצקרשת';
+
 function fakeHebrew(source: string): string {
-  return `he:${source}`;
+  return [...source]
+    .map((ch) => HEBREW_ALPHABET[ch.charCodeAt(0) % HEBREW_ALPHABET.length])
+    .join('');
 }
 
 async function api(path: string, init?: RequestInit): Promise<Response> {

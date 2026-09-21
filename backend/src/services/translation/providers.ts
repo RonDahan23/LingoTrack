@@ -245,6 +245,28 @@ export function looksLikeProviderWarning(text: string): boolean {
   return MYMEMORY_WARNING.test(text.trim());
 }
 
+/**
+ * True when `translated` is not actually a translation of `source` — the
+ * provider handed the input straight back.
+ *
+ * Google echoes anything it cannot translate, so a bug upstream that asks for
+ * a non-word gets a confident non-answer rather than an error. That is exactly
+ * how the lemmatizer's "conquer" -> "conqu" ended up cached as Hebrew and
+ * served as the correct answer in a quiz.
+ *
+ * The test is "the target script is missing", not "output equals input": a
+ * partial echo is just as wrong. It is conditioned on the source containing
+ * Latin letters so that legitimately script-free results — translating "1999",
+ * say — are not rejected as failures.
+ */
+const HEBREW = /[֐-׿]/;
+const LATIN = /[A-Za-z]/;
+
+export function looksUntranslated(source: string, translated: string): boolean {
+  if (!LATIN.test(source)) return false;
+  return !HEBREW.test(translated);
+}
+
 export function parseMyMemoryResponse(body: unknown): string {
   const envelope = body as MyMemoryResponse | null;
   if (!envelope || typeof envelope !== 'object') {

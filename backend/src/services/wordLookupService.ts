@@ -18,6 +18,7 @@ import { prisma } from '../lib/prisma.js';
 import type { PartOfSpeech } from '../config/wordBank.js';
 import { enrichWord } from './morphology/enrich.js';
 import { TranslationError, translateToHebrew } from './translationService.js';
+import { looksUntranslated } from './translation/providers.js';
 import {
   fetchWordSenses,
   selectSense,
@@ -71,9 +72,18 @@ async function cachedSenses(lemma: string): Promise<WordSenses> {
     where: { source_target: { source, target: TARGET } },
   });
   const parsed = cached ? parseCached(cached.translated) : null;
-  if (parsed) return parsed;
+  // Rows cached before the echo guard existed may hold a non-answer; re-fetch
+  // over them rather than serving them forever.
+  if (parsed && !looksUntranslated(lemma, parsed.primary)) return parsed;
 
   const senses = await fetchWordSenses(lemma, TARGET);
+
+  // Google echoes what it cannot translate. Caching that would pin a non-answer
+  // to this lemma permanently, so treat it as a provider failure and let the
+  // caller fall through to the plain translation path.
+  if (looksUntranslated(lemma, senses.primary)) {
+    throw new TranslationError(`senses echoed the source for "${lemma}"`);
+  }
 
   await prisma.translation.upsert({
     where: { source_target: { source, target: TARGET } },

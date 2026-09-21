@@ -7,6 +7,7 @@ import {
   googleMobileProvider,
   googleProvider,
   looksLikeProviderWarning,
+  looksUntranslated,
   type TranslationProvider,
 } from './translation/providers.js';
 
@@ -60,10 +61,16 @@ export async function translateToHebrew(rawText: string): Promise<string> {
   const cached = await prisma.translation.findUnique({
     where: { source_target: { source: key, target: TARGET } },
   });
-  // A row written before the provider envelope was validated may hold a quota
-  // warning instead of Hebrew. Nothing else ever revisits a cached row, so a
-  // poisoned one would be served forever — re-translate over it instead.
-  if (cached && !looksLikeProviderWarning(cached.translated)) return cached.translated;
+  // A cached row may hold a quota warning, or an echo of the source from a
+  // provider that could not translate it. Nothing else ever revisits a cached
+  // row, so a poisoned one would be served forever — re-translate over it.
+  if (
+    cached &&
+    !looksLikeProviderWarning(cached.translated) &&
+    !looksUntranslated(key, cached.translated)
+  ) {
+    return cached.translated;
+  }
 
   // Send the original casing (proper nouns translate better), but key the
   // cache on the normalised form.
@@ -90,8 +97,10 @@ async function translateWithFallback(source: string): Promise<string> {
   for (const provider of providers) {
     try {
       const text = await provider.translate(source, TARGET);
-      if (text) return text;
-      failures.push(`${provider.name} returned empty`);
+      // An echo is a failure, not a result: let the next provider try rather
+      // than caching the English back as though it were Hebrew.
+      if (text && !looksUntranslated(source, text)) return text;
+      failures.push(text ? `${provider.name} echoed the source` : `${provider.name} returned empty`);
     } catch (err) {
       if (!(err instanceof TranslationError)) throw err;
       failures.push(err.message);
