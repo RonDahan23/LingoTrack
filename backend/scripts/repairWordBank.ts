@@ -1,13 +1,24 @@
-/** OPS: repair word-bank rows whose translation is not actually Hebrew.
+/** OPS: re-resolve saved words whose stored meaning is stale or wrong.
  *
- *  A lemmatizer bug turned words ending in -er into non-words ("conquer" ->
- *  "conqu"); the translator echoed the non-word back, and the echo was stored
- *  as the word's meaning. Both holes are closed, but rows written before that
- *  are still in people's banks, so they need re-resolving.
+ *  Three separate defects have put bad data in word banks, and each is
+ *  invisible to the checks that catch the others:
  *
- *  Re-enriches each broken row from its SURFACE form and stored context line,
- *  then re-resolves the translation through the current lookup. SRS columns are
- *  never touched — a repair must not cost anyone their review history.
+ *    - "conquer" lemmatised to the non-word "conqu", which the translator
+ *      echoed back, so the stored meaning was English.
+ *    - "tired" lemmatised to "tir", which the translator rendered
+ *      phonetically as "טיר" — Hebrew letters, English fragment. Any
+ *      script-based check passes it.
+ *    - "tore" was stored with the NOUN sense of "tear" (דִמעָה) despite being
+ *      tagged a verb, because the meaning was resolved without the lyric line.
+ *      Its lemma and its script are both perfectly fine.
+ *
+ *  So this does not try to detect breakage. It re-resolves every row through
+ *  the current lookup and writes back whatever changed, which covers all three
+ *  and any fourth not yet found. Senses are cached per lemma in the database,
+ *  so a second run costs almost nothing.
+ *
+ *  SRS columns are never touched — a repair must not cost anyone their review
+ *  history.
  *
  *  From backend/ (dry run by default, prints what it would change):
  *    npx tsx scripts/repairWordBank.ts
@@ -23,32 +34,29 @@ const apply = process.argv.includes('--apply');
 
 async function main() {
   const rows = await prisma.userWordBank.findMany({
-    select: { id: true, userId: true, word: true, lemma: true, translation: true, contextLine: true },
+    select: {
+      id: true,
+      userId: true,
+      word: true,
+      lemma: true,
+      translation: true,
+      contextLine: true,
+    },
+    orderBy: { word: 'asc' },
   });
 
-  // Two symptoms, two detections. A translation with no Hebrew is the obvious
-  // one ("conquer" -> "conqu"). The subtler one carries Hebrew letters and is
-  // still wrong: "tired" lemmatised to the non-word "tir", which Google
-  // rendered phonetically as "טיר". That passes any script check, so it is
-  // caught instead by re-deriving the lemma from the stored surface form — a
-  // row whose lemma the current lemmatizer would not produce was written by
-  // the broken one.
-  const broken = rows.filter((r) => {
-    if (!HEBREW.test(r.translation)) return true;
-    const current = enrichWord(r.word, r.contextLine);
-    return current !== null && current.lemma !== r.lemma;
-  });
-
-  console.log(`${rows.length} saved words, ${broken.length} needing repair.`);
-  if (broken.length === 0) return;
+  console.log(`${rows.length} saved words — re-resolving each.`);
   if (!apply) console.log('(dry run — pass --apply to write)\n');
 
-  let fixed = 0;
+  let changed = 0;
+  let unchanged = 0;
   let skipped = 0;
 
-  for (const row of broken) {
-    // The surface form is what the learner actually tapped; the stored lemma is
-    // the value under suspicion, so it must not be the input to the repair.
+  for (const row of rows) {
+    // The SURFACE form is the input, never the stored lemma: the lemma is the
+    // value under suspicion, and the part-of-speech tagger needs to find the
+    // word inside its context line ("tear" does not appear in "and tore you
+    // open", but "tore" does).
     const enrichment = enrichWord(row.word, row.contextLine);
     if (!enrichment) {
       console.log(`  SKIP  ${row.word}: no usable word token`);
@@ -71,11 +79,18 @@ async function main() {
       continue;
     }
 
-    // (userId, lemma) is unique, and the repair can change the lemma — if the
-    // corrected one is already taken, the learner has both the broken and the
-    // good entry. Merging would mean choosing whose review history survives,
-    // so report it and leave the data alone.
-    if (enrichment.lemma !== row.lemma) {
+    const lemmaChanged = enrichment.lemma !== row.lemma;
+    const translationChanged = translation !== row.translation;
+    if (!lemmaChanged && !translationChanged) {
+      unchanged += 1;
+      continue;
+    }
+
+    // (userId, lemma) is unique and a repair can change the lemma. If the
+    // corrected one is already taken, this learner holds both the broken and
+    // the good entry; merging would mean choosing whose review history
+    // survives, so report it and leave the data alone.
+    if (lemmaChanged) {
       const clash = await prisma.userWordBank.findUnique({
         where: { userId_lemma: { userId: row.userId, lemma: enrichment.lemma } },
         select: { id: true },
@@ -89,10 +104,11 @@ async function main() {
       }
     }
 
-    console.log(
-      `  FIX   ${row.word}: ${row.lemma} -> ${enrichment.lemma}, ` +
-        `"${row.translation}" -> "${translation}"`,
-    );
+    const parts = [
+      lemmaChanged ? `lemma ${row.lemma} -> ${enrichment.lemma}` : null,
+      translationChanged ? `"${row.translation}" -> "${translation}"` : null,
+    ].filter(Boolean);
+    console.log(`  FIX   ${row.word}: ${parts.join(', ')}`);
 
     if (apply) {
       await prisma.userWordBank.update({
@@ -107,10 +123,13 @@ async function main() {
         },
       });
     }
-    fixed += 1;
+    changed += 1;
   }
 
-  console.log(`\n${apply ? 'Repaired' : 'Would repair'} ${fixed}, skipped ${skipped}.`);
+  console.log(
+    `\n${apply ? 'Repaired' : 'Would repair'} ${changed}, left ${unchanged} unchanged, ` +
+      `skipped ${skipped}.`,
+  );
 }
 
 main()
