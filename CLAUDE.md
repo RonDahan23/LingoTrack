@@ -16,7 +16,7 @@ LingoTrack syncs a user's Spotify liked songs, scores each track by linguistic d
 
 Two deployables, one shared contract:
 
-- **Backend** — Node.js + TypeScript + Express, Prisma ORM against **PostgreSQL** (`provider = "postgresql"`). `Track.difficultyLevel` and `UserWordBank.status` remain `String` with commented-out value sets rather than Prisma enums — originally a SQL Server constraint (the DB was migrated from SQL Server to Postgres for cloud deployment), kept so the value sets can evolve without a migration. Deployed on **Railway** (backend + managed Postgres); see the Deployment section.
+- **Backend** — Node.js + TypeScript + Express, Prisma ORM against **PostgreSQL** (`provider = "postgresql"`). `Track.difficultyLevel` and `UserWordBank.status` remain `String` with commented-out value sets rather than Prisma enums — originally a SQL Server constraint (the DB was migrated from SQL Server to Postgres for cloud deployment), kept so the value sets can evolve without a migration. Deployed on **Render**, with Postgres on **Neon**; see the Deployment section.
 - **Frontend** — **React** SPA ([frontend/](frontend/)): Vite + TypeScript + Tailwind CSS, React Router, mobile-first responsive. Session token in `localStorage`, sent as a Bearer header via a small `fetch` wrapper. See the "React web client" section below.
 
 ### Data model shape
@@ -190,8 +190,35 @@ npm/npx write to `C:` by default and that drive is full, so prefer the local bin
 
 ## Deployment
 
-- **Frontend** — Firebase Hosting, project `lingotrack-7cb80` (served at `https://lingotrack-7cb80.web.app`). Config in [firebase.json](firebase.json) (`public: frontend/dist`, SPA rewrite to `/index.html`). Deploy: `cd frontend && npm run build && firebase deploy --only hosting`. The build **must** be run with `VITE_API_BASE_URL` set to the deployed backend URL (via `frontend/.env.production`), otherwise the SPA falls back to `http://localhost:3000` and login dead-ends at `ERR_CONNECTION_REFUSED`.
-- **Backend** — Railway (Nixpacks). [backend/nixpacks.toml](backend/nixpacks.toml) forces `npm ci --include=dev` (build needs tsc/prisma from devDependencies); `build` runs `prisma generate && tsc`; `start` runs `prisma migrate deploy && node dist/server.js` (migrations apply on every boot). Railway injects `PORT` and, via the Postgres plugin, `DATABASE_URL`. Required service vars: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI` (= `https://<backend-domain>/api/auth/callback`), `TOKEN_ENCRYPTION_KEY`, `SESSION_SECRET`, `WEB_APP_URL` (= the Firebase Hosting origin), `NODE_ENV=production`.
+- **Frontend** — Firebase Hosting, project `lingotrack-7cb80` (served at `https://lingotrack-7cb80.web.app`). Config in [firebase.json](firebase.json) (`public: frontend/dist`, SPA rewrite to `/index.html`). **Deploys automatically on every push to `main`** via [.github/workflows/firebase-hosting-merge.yml](.github/workflows/firebase-hosting-merge.yml) — a manual `firebase deploy --only hosting` is the fallback, not the normal path. The build **must** carry `VITE_API_BASE_URL`, or the SPA falls back to `http://localhost:3000` and login dead-ends at `ERR_CONNECTION_REFUSED`. That value lives **in the workflow**, not in a `frontend/.env.production` (there is no such file in the repo) — which makes the two workflows the only place the backend URL is hardcoded.
+- **Backend** — **Render**, from the blueprint in [render.yaml](render.yaml) (`rootDir: backend`), with Postgres on **Neon** (Render's own free Postgres expires after 30 days). Auto-deploys on push to `main`. `buildCommand` forces `npm ci --include=dev` (build needs tsc/prisma from devDependencies); `start` runs `prisma migrate deploy && node dist/server.js`, so migrations apply on every boot. Render injects `PORT`. Required service vars (all `sync: false`, i.e. set by hand in the dashboard): `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI` (= `https://<backend-domain>/api/auth/callback`), `TOKEN_ENCRYPTION_KEY`, `SESSION_SECRET`, `WEB_APP_URL` (= the Firebase Hosting origin), `DATABASE_URL` (the Neon pooled string), `NODE_ENV=production`.
+### Moving the backend to another host or domain
+
+Google Safe Browsing flagged `lingotrack-backend.onrender.com` as a "Dangerous
+site", which blocks **login for every Chrome user** — the OAuth callback is a
+top-level navigation, so the interstitial replaces it. The host was serving our
+code correctly at the time (health JSON, the right 302, our 404 handler); it is
+a reputation verdict on the *hostname*, not on anything the app does. Two
+plausible drivers, not separable from outside: `*.onrender.com` is shared free
+hosting whose neighbours attract abuse, and the callback URL is shaped like a
+phishing relay — an opaque `?code=` blob that immediately 302s to a different
+domain. The durable answer is a domain we own, since its reputation is ours.
+
+The backend URL appears in exactly **two** places in the repo, both workflows:
+`VITE_API_BASE_URL` in [firebase-hosting-merge.yml](.github/workflows/firebase-hosting-merge.yml)
+and [firebase-hosting-pull-request.yml](.github/workflows/firebase-hosting-pull-request.yml).
+Everything else is dashboard configuration. Full switch-over, in order:
+
+1. Render → Settings → **Custom Domain** → add `api.<domain>`; Render returns a CNAME target.
+2. DNS at the registrar → `CNAME api → <render target>`. Wait for Render to show the cert as issued.
+3. Spotify dashboard → **add** `https://api.<domain>/api/auth/callback` to the Redirect URIs, keeping the old one for now, so both work mid-cutover.
+4. Render env → `SPOTIFY_REDIRECT_URI` = the new URI, **byte-for-byte** with what Spotify has.
+5. Both workflows → `VITE_API_BASE_URL` = `https://api.<domain>`, then push (that is what rebuilds the SPA against the new host).
+6. Verify login end to end, **then** remove the old Redirect URI from Spotify.
+
+`WEB_APP_URL` does not change — it is the Firebase origin, and the frontend is
+not moving.
+
 - **Spotify dashboard** — the registered Redirect URI must be the **backend** callback `https://<backend-domain>/api/auth/callback` (byte-for-byte with `SPOTIFY_REDIRECT_URI`), never the SPA. The app is in Development mode, so testers must be added under User Management.
 
 ## Backend conventions
