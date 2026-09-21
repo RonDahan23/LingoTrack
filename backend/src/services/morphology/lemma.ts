@@ -62,12 +62,33 @@ const LEGITIMATE_FINAL_DOUBLES = new Set(['s', 'l', 'f', 'z', 'e', 'o']);
  * still have to return something. Undoubling is the safer default for an
  * implausible doubled ending, since no English base form ends "-pp"/"-nn".
  */
+/**
+ * Consonants that a silent final "e" sits behind in English ("tire", "store",
+ * "hope"). Deliberately excludes x, w, y, h, j, q: "fix" does not become
+ * "fixe".
+ */
+const TAKES_SILENT_E = new Set(['b', 'c', 'd', 'g', 'k', 'l', 'm', 'n', 'p', 'r', 's', 't', 'v', 'z']);
+
+/** Consonant-vowel-consonant ending, the shape a dropped silent "e" leaves. */
+const CVC_END = /[^aeiou][aeiou][a-z]$/;
+
 function bestGuessStem(stem: string): string {
   const last = stem[stem.length - 1] as string;
   if (!LEGITIMATE_FINAL_DOUBLES.has(last)) {
     const undoubled = undouble(stem);
     if (undoubled) return undoubled;
   }
+
+  // Restore a silent "e" the suffix swallowed: "tired" strips to "tir", whose
+  // real base is "tire". Without this the lemmatizer emits a non-word, which
+  // the translator then renders phonetically — "tir" came back as "טיר",
+  // Hebrew letters spelling an English fragment, and that got shown as the
+  // meaning of "tired". Restricted to short CVC-shaped stems so that longer,
+  // already-complete stems are left alone: "conquered" keeps "conquer".
+  if (stem.length <= 4 && CVC_END.test(stem) && TAKES_SILENT_E.has(last)) {
+    return `${stem}e`;
+  }
+
   return stem;
 }
 

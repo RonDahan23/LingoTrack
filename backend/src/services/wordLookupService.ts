@@ -95,6 +95,57 @@ async function cachedSenses(lemma: string): Promise<WordSenses> {
 }
 
 /**
+ * Endings whose surface form is a better dictionary query than its lemma.
+ *
+ * Measured against Google's dictionary rather than assumed:
+ *
+ *  - **-ed / -en** are participial adjectives in their own right. "tired" is
+ *    listed as an adjective meaning עָיֵף, as are "bored", "excited" and
+ *    "broken", while reducing them gives the causative verb ("tire" ->
+ *    לְהַלאוֹת, *to weary someone*) — not what a learner tapping "I'm tired"
+ *    is asking. Plain past tenses lose nothing: "walked" -> לָלֶכֶת already.
+ *  - **-er** covers agent nouns and comparatives, and the dictionary has the
+ *    right entry for both: "believer" -> מַאֲמִין (against the lemma's
+ *    לְהֶאֱמִין, *to believe*), "bigger" -> גָדוֹל.
+ *
+ * -ing is deliberately excluded: there the dictionary goes the other way and
+ * lists the gerund NOUN ("running" -> רִיצָה, "singing" -> שִׁירָה), where the
+ * lemma's verb sense is the useful one.
+ */
+const SURFACE_PREFERRED = /(?:ed|en|er)$/;
+
+/**
+ * Uses the dictionary itself to check that the lemma is a real word.
+ *
+ * The lemmatizer works on spelling rules and can produce something that is not
+ * English at all — "tired" once reduced to "tir". Asking Google to translate a
+ * non-word does not fail: it renders it phonetically, so "tir" came back as
+ * "טיר", real Hebrew letters spelling an English fragment, which sailed past
+ * the echo guard and was shown as the meaning of "tired".
+ *
+ * A dictionary block is only returned for words that are in the dictionary,
+ * which makes its absence a reliable signal that a lemma is not a word. The
+ * lemma is still used when neither form has an entry — for a genuinely rare
+ * word, a reduced form is a better query than none.
+ */
+async function resolveSenses(
+  lemma: string,
+  surface: string,
+): Promise<{ lemma: string; senses: WordSenses }> {
+  if (lemma !== surface && SURFACE_PREFERRED.test(surface)) {
+    const fromSurface = await cachedSenses(surface);
+    if (fromSurface.senses.length > 0) return { lemma: surface, senses: fromSurface };
+  }
+
+  const senses = await cachedSenses(lemma);
+  if (senses.senses.length > 0 || lemma === surface) return { lemma, senses };
+
+  // The lemma is not in the dictionary, so it is probably not a word.
+  const fromSurface = await cachedSenses(surface);
+  return fromSurface.senses.length > 0 ? { lemma: surface, senses: fromSurface } : { lemma, senses };
+}
+
+/**
  * Looks a word up in the context of the line it was tapped in.
  *
  * `contextLine` is optional but materially changes the answer — without it the
@@ -116,13 +167,19 @@ export async function lookupWord(raw: string, contextLine?: string | null): Prom
     };
   }
 
-  const { surface, lemma, partOfSpeech } = enrichment;
+  const { surface, partOfSpeech } = enrichment;
 
   try {
-    const senses = await cachedSenses(lemma);
-    const translation = selectSense(senses, partOfSpeech);
+    const resolved = await resolveSenses(enrichment.lemma, surface);
+    const translation = selectSense(resolved.senses, partOfSpeech);
     if (translation) {
-      return { word: surface, lemma, partOfSpeech, translation, senses: senses.senses };
+      return {
+        word: surface,
+        lemma: resolved.lemma,
+        partOfSpeech,
+        translation,
+        senses: resolved.senses.senses,
+      };
     }
   } catch (err) {
     // Only a provider failure falls back; a bug in our own parsing should not
@@ -130,6 +187,7 @@ export async function lookupWord(raw: string, contextLine?: string | null): Prom
     if (!(err instanceof TranslationError)) throw err;
   }
 
+  const lemma = enrichment.lemma;
   return {
     word: surface,
     lemma,

@@ -36,6 +36,37 @@ describe('lemmatize: -er is only comparative when a real word remains', () => {
   it('still reduces agent nouns, which go through deriveRoot', () => {
     expect(contextFree('teacher')).toBe('teach');
   });
+});
+
+describe('lemmatize: -ed restores a swallowed silent e', () => {
+  const contextFree = (word: string) => lemmatize(word, guessPartOfSpeech(word, null).pos);
+
+  it('does not leave a truncated stem', () => {
+    // "tired" -> "tir" was translated phonetically as "טיר" and shown as the
+    // meaning of "tired": Hebrew letters, but an English fragment.
+    expect(contextFree('tired')).toBe('tire');
+    expect(contextFree('hired')).toBe('hire');
+    expect(contextFree('wired')).toBe('wire');
+    expect(contextFree('stored')).toBe('store');
+  });
+
+  it('leaves stems that are already complete alone', () => {
+    expect(contextFree('conquered')).toBe('conquer');
+    expect(contextFree('walked')).toBe('walk');
+    expect(contextFree('wanted')).toBe('want');
+    expect(contextFree('needed')).toBe('need');
+  });
+
+  it('does not add an e after a consonant that never takes one', () => {
+    // "fixe" is not a word.
+    expect(contextFree('fixed')).toBe('fix');
+  });
+
+  it('keeps the doubling and silent-e rules apart', () => {
+    expect(contextFree('hoped')).toBe('hope');
+    expect(contextFree('hopped')).toBe('hop');
+    expect(contextFree('planned')).toBe('plan');
+  });
 
   it('never returns a truncation of the input', () => {
     // The shape of the bug: output is a strict prefix of the input.
