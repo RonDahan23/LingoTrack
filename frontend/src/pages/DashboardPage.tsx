@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   fetchRankedTracks,
   getGradeStatus,
+  pickTrack,
   startGradeLibrary,
   startLibrarySync,
   type GradeStatus,
@@ -167,6 +168,8 @@ export function DashboardPage() {
         }
       />
 
+      <PickForMe />
+
       <SearchBar value={query} onChange={setQuery} />
 
       {/* While searching, results span every bucket, so the tabs don't apply. */}
@@ -330,4 +333,56 @@ function tabCounts(state: LoadState): Record<DifficultyLevel, number> {
     }
   }
   return counts;
+}
+
+/**
+ * Picks a level-matched track and drops the learner straight into the player.
+ *
+ * Hidden while a search is open would be fiddly and pointless — it sits above
+ * the search box, where it reads as the "I don't want to choose" escape hatch
+ * from a library too long to scan.
+ */
+function PickForMe() {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const onPick = useCallback(async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      // The last pick is remembered so a second press moves on rather than
+      // handing back the same song.
+      const previous = sessionStorage.getItem('lingotrack:lastPick');
+      const { track, reason } = await pickTrack(previous);
+
+      if (!track) {
+        setNote(reason ?? 'Nothing to pick yet.');
+        return;
+      }
+      sessionStorage.setItem('lingotrack:lastPick', track.id);
+      navigate(`/player/${track.id}`);
+    } catch (err) {
+      setNote(err instanceof ApiError ? err.message : 'Could not pick a song');
+    } finally {
+      setBusy(false);
+    }
+  }, [navigate]);
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 pt-3">
+      <button
+        type="button"
+        onClick={onPick}
+        disabled={busy}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-700 bg-surface-raised px-4 py-3 text-sm font-semibold text-white transition hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-brand">
+          <path d="M12 3v3m0 12v3m9-9h-3M6 12H3m13.5-6.5-2 2m-5 5-2 2m0-9 2 2m5 5 2 2" strokeLinecap="round" />
+        </svg>
+        {busy ? 'Picking…' : 'Pick a song for me'}
+      </button>
+      {note && <p className="pt-2 text-center text-sm text-neutral-400">{note}</p>}
+    </div>
+  );
 }

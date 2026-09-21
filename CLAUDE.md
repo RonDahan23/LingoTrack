@@ -69,13 +69,38 @@ Grading requires lyrics: a track with none stays `UNGRADED` rather than getting 
 
 ### Endpoints
 
-Live: `/api/health`, `/api/health/db`, `/api/auth/spotify`, `/api/auth/callback`, `/api/auth/me`, `/api/sync/liked-tracks`, `/api/sync/status`, `/api/tracks/ranked`, `GET /api/tracks/:trackId`, `POST /api/tracks/:trackId/lyrics`, `POST /api/tracks/:trackId/prepare`, `GET /api/spotify/token`, `GET /api/translate`, and the Step 5 word-bank set: `POST /api/words` (capture; 201 new / 200 reinforced), `GET /api/words` (+`?status=`), `GET /api/words/stats`, `GET /api/words/:wordId` (+ review history), `DELETE /api/words/:wordId`, `GET /api/practice/session`, `POST /api/practice/submit`.
+Live: `/api/health`, `/api/health/db`, `/api/auth/spotify`, `/api/auth/callback`, `/api/auth/me`, `/api/sync/liked-tracks`, `/api/sync/status`, `/api/tracks/ranked`, `GET /api/tracks/:trackId`, `POST /api/tracks/:trackId/lyrics`, `POST /api/tracks/:trackId/prepare`, `GET /api/spotify/token`, `GET /api/translate`, `GET /api/lookup`, `GET /api/tracks/pick`, and the Step 5 word-bank set: `POST /api/words` (capture; 201 new / 200 reinforced), `GET /api/words` (+`?status=`), `GET /api/words/stats`, `GET /api/words/:wordId` (+ review history), `DELETE /api/words/:wordId`, `GET /api/practice/session`, `POST /api/practice/submit`.
 
 Note `GET /api/words/stats` is registered **before** `/api/words/:wordId` so "stats" isn't swallowed as a word id — same ordering constraint as the tracks router. CORS allows `DELETE` because of the word-bank delete.
 
 `/api/tracks/ranked` returns the caller's graded liked tracks grouped into the three tabs (easiest-first within each), optional `?level=`. `GET /api/tracks/:trackId` returns one track (incl. `previewUrl`) plus its ordered lyric lines — the sync player's payload. `POST /api/tracks/:trackId/lyrics` (body `{lrc}`) ingests + grades in one call — the entry point for lyrics until a real provider is configured. All three are **library-scoped**: a track not in the caller's library 404s, so track ids can't be enumerated.
 
 `Track.previewUrl` (nullable) is Spotify's 30-second preview MP3, persisted by ingestion. It's null for this app (a 2024 Spotify change), so full playback uses the Web Playback SDK instead (below).
+
+### Word lookup, senses, and phrases
+
+Three layers sit between a tapped word and the Hebrew shown, because a bare
+string lookup is wrong often enough to mislead — "tear" in *and tore you open*
+came back as דִמעָה, "laid" as מוּנָח.
+
+- **`GET /api/lookup?word=&line=`** ([backend/src/services/wordLookupService.ts](backend/src/services/wordLookupService.ts)) is the word-tap endpoint; `/api/translate` stays the *line* endpoint. It returns a word record (lemma, part of speech, chosen translation, all senses), not a string.
+- **Sense selection uses the part of speech already inferred from the lyric line.** `enrichWord` (the word bank's morphology) gives lemma + POS, and `selectSense` picks the matching group out of Google's dictionary block (`dt=bd`, [backend/src/services/translation/senses.ts](backend/src/services/translation/senses.ts)). Every step degrades to the plain translation rather than failing: unknown POS, no dictionary block, or a total outage all end at the old answer. A confident wrong sense is worse than the one every other tool gives.
+- Looking the **lemma** up rather than the surface form is half the fix on its own — "laid" alone resolves to מוּנָח, but "lay" to לְהַנִיחַ.
+- **Senses are cached one row per lemma**, not per (lemma, POS), under a `senses#<lemma>` key in the `Translation` table holding the JSON. The senses belong to the word; the POS only selects among them, so the same row serves "tear" the noun and "tear" the verb, and the same word met in a new line costs no request.
+- `captureWord` goes through the same lookup and is passed the **surface** form, not the lemma — the POS tagger locates the word inside the context line, and "tear" cannot be found in "and tore you open".
+
+**Phrase detection is client-side and deliberately so** ([frontend/src/lib/phrases.ts](frontend/src/lib/phrases.ts) + [phraseLexicon.ts](frontend/src/lib/phraseLexicon.ts)). Tapping any word of a known multi-word expression looks up and highlights the whole phrase. Matching runs over the exact tokens the row rendered, so the highlight can never drift from the match — which is why it is not a backend call returning indices the two tokenizers would have to agree on.
+
+- **`he` in the lexicon is present only where machine translation is WRONG.** Google renders "no offense" as "ללא עבירה" — *without a crime*. Where the machine is right ("clap along" → "למחוא כפיים") the gloss is deliberately omitted and the phrase goes through the normal cached `/api/translate`, so the lexicon stays a small idiom list instead of a second translation memory.
+- Patterns are surface forms because they must match the line *as sung*: `v()` expands a verb to its inflected forms, and irregular pasts are passed explicitly (`v('lay', 'laid')`) since guessing would silently fail to match. `[DET]` is an optional determiner slot, so one entry covers "lay eyes on" and "laid your eyes on".
+- **`DET` lives in `phraseLexicon.ts`, not in `phrases.ts`.** As a cycle (matcher ↔ lexicon) the sentinel was still undefined while the entries were being constructed, and every pattern using it silently held a hole.
+- A missing phrase costs nothing — the tap just falls back to single-word behaviour.
+
+### Song picker
+
+`GET /api/tracks/pick` returns one level-matched track; the dashboard's "Pick a song for me" button opens it. Scoped and filtered exactly like `/tracks/ranked` (graded tracks only, which implies lyrics exist, so anything picked is playable), and registered **before** `/tracks/:trackId` so "pick" is not read as an id.
+
+The choice itself is pure ([backend/src/services/picker/levelMatch.ts](backend/src/services/picker/levelMatch.ts)) — no clock, no randomness — so it is testable and a given (library, seed) always yields the same track; the route supplies the seed. `estimateTargetScore` weights the tracks the learner has progressed on by how far they got, then aims `STRETCH` above it (comprehensible input: matching exactly only reinforces). A learner with no history starts at the lower quartile **of their own library**, since "easy" means something different per library. `pickTrack` returns one of the `BAND_SIZE` closest tracks rather than strictly the closest — without a band the button hands back the same song forever, which makes it useless on the second press.
 
 ### Word bank + practice (Step 5)
 

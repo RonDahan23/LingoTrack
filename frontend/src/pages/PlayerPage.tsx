@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchTrack, prepareTrack } from '../api/tracks';
 import { translateToHebrew } from '../api/translate';
+import { lookupWord } from '../api/lookup';
 import { translationError } from '../lib/translationError';
 import { captureWord } from '../api/wordBank';
 import { AppHeader } from '../components/AppHeader';
@@ -12,6 +13,7 @@ import { TranslationPopover, type WordPopover } from '../components/TranslationP
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { ApiError } from '../lib/apiClient';
 import { findActiveLineIndex, formatTimestamp } from '../lib/lyricSync';
+import type { PhraseMatch } from '../lib/phrases';
 import { DIFFICULTY_META, type DifficultyLevel, type TrackDetail } from '../types/track';
 
 type LoadState =
@@ -67,6 +69,8 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
   const [prepareNote, setPrepareNote] = useState<string | null>(null);
 
   const [popover, setPopover] = useState<WordPopover | null>(null);
+  /** Token span highlighted in the lyric row — the phrase a tap resolved to. */
+  const [selection, setSelection] = useState<{ start: number; end: number } | null>(null);
   const [lineTx, setLineTx] = useState<{ index: number } & LineTranslation | null>(null);
   const resumeAfterTx = useRef(false);
 
@@ -105,26 +109,66 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
     }
   }, [player, track.id]);
 
-  const onWordTap = useCallback(async (word: string, anchor: DOMRect, contextLine: string) => {
-    if (!word) return;
-    setPopover({
-      word,
-      translation: null,
-      error: null,
-      x: anchor.left + anchor.width / 2,
-      y: anchor.top,
-      anchorBottom: anchor.bottom,
-      contextLine,
-      save: 'idle',
-    });
-    try {
-      const translation = await translateToHebrew(word);
-      // Guard against a stale response for a word the learner already moved off.
-      setPopover((p) => (p && p.word === word ? { ...p, translation } : p));
-    } catch (err) {
-      const error = translationError(err);
-      setPopover((p) => (p && p.word === word ? { ...p, error } : p));
-    }
+  /**
+   * A tap resolves to a phrase when the word sits inside one, and to the word
+   * alone otherwise. Three paths, cheapest first:
+   *
+   *  - curated idiom  -> shown immediately, no request at all (and no chance
+   *                      of the machine rendering "no offense" as "ללא עבירה")
+   *  - other phrase   -> translated as a whole string
+   *  - single word    -> context-aware lookup, which picks the dictionary
+   *                      sense matching the word's part of speech in this line
+   */
+  const onWordTap = useCallback(
+    async (word: string, anchor: DOMRect, contextLine: string, phrase: PhraseMatch | null) => {
+      if (!word) return;
+
+      const base = {
+        word,
+        phrase: phrase?.text ?? null,
+        senses: [],
+        error: null,
+        x: anchor.left + anchor.width / 2,
+        y: anchor.top,
+        anchorBottom: anchor.bottom,
+        contextLine,
+        save: 'idle' as const,
+      };
+
+      setPopover({ ...base, translation: phrase?.translation ?? null });
+      setSelection(phrase ? { start: phrase.start, end: phrase.end } : null);
+
+      // Curated phrase: already on screen, nothing to fetch.
+      if (phrase?.translation) return;
+
+      // Only apply a response if the same tap is still open — the learner may
+      // have moved on to another word while this was in flight.
+      const isCurrent = (p: WordPopover | null) =>
+        p && p.word === word && p.phrase === (phrase?.text ?? null);
+
+      try {
+        if (phrase) {
+          const translation = await translateToHebrew(phrase.text);
+          setPopover((p) => (isCurrent(p) ? { ...(p as WordPopover), translation } : p));
+        } else {
+          const result = await lookupWord(word, contextLine);
+          setPopover((p) =>
+            isCurrent(p)
+              ? { ...(p as WordPopover), translation: result.translation, senses: result.senses }
+              : p,
+          );
+        }
+      } catch (err) {
+        const error = translationError(err);
+        setPopover((p) => (isCurrent(p) ? { ...(p as WordPopover), error } : p));
+      }
+    },
+    [],
+  );
+
+  const closePopover = useCallback(() => {
+    setPopover(null);
+    setSelection(null);
   }, []);
 
   /**
@@ -206,6 +250,7 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
                 line={line}
                 isActive={i === activeIndex}
                 onWordTap={onWordTap}
+                selection={popover && popover.contextLine === line.text ? selection : null}
                 onTranslate={() => onTranslateLine(i, line.text)}
                 translation={lineTx?.index === i ? lineTx : null}
                 onResume={onResumeLine}
@@ -219,7 +264,7 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
       {popover && (
         <TranslationPopover
           popover={popover}
-          onClose={() => setPopover(null)}
+          onClose={closePopover}
           onSave={onSaveWord}
         />
       )}

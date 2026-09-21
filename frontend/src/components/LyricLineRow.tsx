@@ -1,3 +1,4 @@
+import { findPhraseAt, type PhraseMatch } from '../lib/phrases';
 import { cleanWord, tokenizeLine } from '../lib/wordTokenize';
 import type { LyricLine } from '../types/track';
 
@@ -9,14 +10,28 @@ export interface LineTranslation {
 interface LyricLineRowProps {
   line: LyricLine;
   isActive: boolean;
-  /** `contextLine` is the lyric the word came from — saved with it for practice. */
-  onWordTap: (word: string, anchor: DOMRect, contextLine: string) => void;
+  /**
+   * `contextLine` is the lyric the word came from — saved with it for practice,
+   * and used server-side to pick the right dictionary sense. `phrase` is the
+   * multi-word expression the tap landed inside, when there is one.
+   */
+  onWordTap: (
+    word: string,
+    anchor: DOMRect,
+    contextLine: string,
+    phrase: PhraseMatch | null,
+  ) => void;
   onTranslate: () => void;
   /** Present when this line's full translation is open (playback paused). */
   translation?: LineTranslation | null;
   onResume: () => void;
   /** Tap the line body to seek playback here. */
   onSeek: () => void;
+  /**
+   * Token span to show as selected — the whole phrase when a tap resolved to
+   * one, so the learner sees what was actually looked up.
+   */
+  selection?: { start: number; end: number } | null;
 }
 
 export function LyricLineRow({
@@ -27,6 +42,7 @@ export function LyricLineRow({
   translation,
   onResume,
   onSeek,
+  selection,
 }: LyricLineRowProps) {
   const tokens = tokenizeLine(line.text);
 
@@ -48,14 +64,30 @@ export function LyricLineRow({
                 key={i}
                 type="button"
                 onClick={(e) =>
-                  onWordTap(cleanWord(token.text), e.currentTarget.getBoundingClientRect(), line.text)
+                  onWordTap(
+                    cleanWord(token.text),
+                    e.currentTarget.getBoundingClientRect(),
+                    line.text,
+                    findPhraseAt(tokens, i),
+                  )
                 }
-                className="rounded px-0.5 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:bg-white/10"
+                className={`rounded px-0.5 focus:outline-none focus-visible:bg-white/10 ${
+                  selection && i >= selection.start && i < selection.end
+                    ? 'bg-brand/30 text-white'
+                    : 'hover:bg-white/10 hover:text-white'
+                }`}
               >
                 {token.text}
               </button>
             ) : (
-              <span key={i}>{token.text}</span>
+              <span
+                key={i}
+                className={
+                  selection && i > selection.start && i < selection.end ? 'bg-brand/30' : ''
+                }
+              >
+                {token.text}
+              </span>
             ),
           )}
         </p>

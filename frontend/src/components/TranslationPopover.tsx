@@ -1,11 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clampToViewport, type Placement } from '../lib/popoverPosition';
+import type { WordSense } from '../api/lookup';
 
 /** Save state of the tapped word, so the button can reflect progress. */
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface WordPopover {
+  /** The tapped word on its own — always what Save puts in the bank. */
   word: string;
+  /**
+   * The multi-word expression the tapped word belongs to, when it belongs to
+   * one. Present means the card shows the phrase: "along" alone translates to
+   * לְאוֹרֶך, which says nothing about "clap along".
+   */
+  phrase: string | null;
+  /** Other dictionary senses, offered when the chosen one may not fit. */
+  senses: WordSense[];
   translation: string | null; // null while loading
   error: string | null;
   x: number; // viewport coords of the tapped word: horizontal centre,
@@ -60,7 +70,16 @@ export function TranslationPopover({
     return () => window.removeEventListener('resize', place);
     // Re-measure when the content changes height (translation arrives, the save
     // button appears, an error replaces the text).
-  }, [popover.x, popover.y, popover.anchorBottom, popover.translation, popover.error, popover.save]);
+  }, [
+    popover.x,
+    popover.y,
+    popover.anchorBottom,
+    popover.translation,
+    popover.error,
+    popover.save,
+    popover.phrase,
+    popover.senses,
+  ]);
 
   return (
     <>
@@ -69,7 +88,7 @@ export function TranslationPopover({
       <div
         ref={cardRef}
         role="dialog"
-        className="fixed z-50 w-44 max-w-[calc(100vw-1rem)] rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 shadow-xl"
+        className="fixed z-50 w-56 max-w-[calc(100vw-1rem)] rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 shadow-xl"
         style={
           placement
             ? { left: placement.left, top: placement.top }
@@ -79,7 +98,16 @@ export function TranslationPopover({
         }
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-xs text-neutral-400">{popover.word}</p>
+        {popover.phrase ? (
+          <p className="text-sm font-semibold text-white">
+            <span className="me-1.5 rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+              ביטוי
+            </span>
+            {popover.phrase}
+          </p>
+        ) : (
+          <p className="text-xs text-neutral-400">{popover.word}</p>
+        )}
         {popover.error ? (
           <p className="text-sm text-rose-400">{popover.error}</p>
         ) : popover.translation === null ? (
@@ -88,6 +116,24 @@ export function TranslationPopover({
           <p dir="rtl" className="text-lg font-semibold text-white">
             {popover.translation}
           </p>
+        )}
+
+        {/* Other senses, so a wrong pick is visibly recoverable rather than
+            silently authoritative. Only worth showing when there is more than
+            one, and never for a phrase (the dictionary has no entry for it). */}
+        {!popover.phrase && popover.senses.length > 1 && (
+          <ul className="mt-1.5 border-t border-neutral-800 pt-1.5">
+            {popover.senses.map((sense) => (
+              // Both halves are Hebrew, so the row reads right-to-left: the
+              // part of speech sits at the right and the senses run leftward.
+              // Set explicitly rather than inherited, so the row cannot flip
+              // if this card is ever nested in a directional container.
+              <li key={sense.label} dir="rtl" className="flex items-baseline gap-1.5 text-[11px]">
+                <bdi className="shrink-0 text-neutral-500">{POS_LABELS[sense.label] ?? sense.label}</bdi>
+                <bdi className="text-neutral-300">{sense.translations.slice(0, 3).join(', ')}</bdi>
+              </li>
+            ))}
+          </ul>
         )}
 
         {popover.translation !== null && !popover.error && (
@@ -109,6 +155,8 @@ export function TranslationPopover({
                 ? '✓ In your word bank'
                 : popover.save === 'error'
                   ? 'Save failed — tap again'
+                  : popover.phrase
+                  ? `+ שמירת “${popover.word}”`
                   : '+ Save to word bank'}
           </button>
         )}
@@ -116,3 +164,16 @@ export function TranslationPopover({
     </>
   );
 }
+
+/** Google's dictionary labels, in Hebrew — same metalanguage as the word card. */
+const POS_LABELS: Record<string, string> = {
+  noun: 'שם עצם',
+  verb: 'פועל',
+  adjective: 'שם תואר',
+  adverb: 'תואר הפועל',
+  pronoun: 'כינוי גוף',
+  preposition: 'מילת יחס',
+  conjunction: 'מילת חיבור',
+  interjection: 'מילת קריאה',
+  exclamation: 'מילת קריאה',
+};

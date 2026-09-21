@@ -1,5 +1,5 @@
 import { apiRequest } from '../lib/apiClient';
-import type { RankedTracks, TrackDetail } from '../types/track';
+import type { RankedTracks, Track, TrackDetail } from '../types/track';
 
 export function fetchRankedTracks(): Promise<RankedTracks> {
   return apiRequest<RankedTracks>('/api/tracks/ranked');
@@ -7,6 +7,23 @@ export function fetchRankedTracks(): Promise<RankedTracks> {
 
 export function fetchTrack(trackId: string): Promise<TrackDetail> {
   return apiRequest<TrackDetail>(`/api/tracks/${encodeURIComponent(trackId)}`);
+}
+
+export interface PickResult {
+  track: Track | null;
+  /** Present when no track could be picked — shown to the learner as-is. */
+  reason?: string;
+  /** The difficulty the pick was aiming at; useful for explaining the choice. */
+  targetScore?: number;
+}
+
+/**
+ * Picks one level-matched track to listen to next. `exclude` is the track the
+ * learner is coming from, so pressing again moves them on.
+ */
+export function pickTrack(exclude?: string | null): Promise<PickResult> {
+  const query = exclude ? `?exclude=${encodeURIComponent(exclude)}` : '';
+  return apiRequest<PickResult>(`/api/tracks/pick${query}`);
 }
 
 export interface PrepareResult {

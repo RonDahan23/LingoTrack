@@ -8,6 +8,7 @@ import { ingestLyricsFromLrc } from '../services/lyrics/lyricsService.js';
 import { LrcLibProvider } from '../services/lyrics/lrclibProvider.js';
 import { gradeStoredTrack, processTrack } from '../services/gradingService.js';
 import { getGradeState, startGradeLibrary } from '../services/gradeLibraryService.js';
+import { estimateTargetScore, pickTrack } from '../services/picker/levelMatch.js';
 
 export const tracksRouter: Router = Router();
 
@@ -89,6 +90,73 @@ tracksRouter.get(
           { count: groups[level]!.length, tracks: groups[level]! },
         ]),
       ),
+    });
+  }),
+);
+
+/**
+ * Picks one track for the caller to listen to next, matched to their level.
+ *
+ * Registered BEFORE `/tracks/:trackId` so "pick" is not captured as an id —
+ * the same ordering constraint as `/tracks/ranked`.
+ *
+ * `?exclude=` is the track they are coming from, so pressing the button again
+ * moves them on instead of handing back the same song. The choice itself is
+ * pure (see picker/levelMatch.ts); this handler only supplies the library and
+ * the seed that varies the pick between presses.
+ */
+tracksRouter.get(
+  '/tracks/pick',
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const excludeId = typeof req.query.exclude === 'string' ? req.query.exclude : null;
+
+    // Only graded tracks are candidates, exactly as in /tracks/ranked: a grade
+    // implies lyrics were found, so anything picked here is actually playable.
+    const rows = await prisma.userTrackProgress.findMany({
+      where: { userId, track: { difficultyLevel: { in: [...DIFFICULTY_LEVELS] } } },
+      select: {
+        masteredPct: true,
+        lastPlayedAt: true,
+        track: {
+          select: {
+            id: true,
+            title: true,
+            artist: true,
+            albumArtUrl: true,
+            difficultyLevel: true,
+            difficultyScore: true,
+            lyricsSynced: true,
+          },
+        },
+      },
+    });
+
+    if (rows.length === 0) {
+      // Not an error: a library that has never been analyzed simply has no
+      // graded tracks yet, and the dashboard says so.
+      res.json({ track: null, reason: 'No graded tracks yet — analyze your library first.' });
+      return;
+    }
+
+    const candidates = rows.map((row) => ({
+      id: row.track.id,
+      difficultyScore: row.track.difficultyScore,
+      masteredPct: row.masteredPct,
+    }));
+
+    const target = estimateTargetScore(candidates);
+    const chosen = pickTrack(candidates, target, { excludeId, seed: Date.now() });
+    const row = rows.find((r) => r.track.id === chosen?.id);
+
+    if (!row) {
+      res.json({ track: null, reason: 'No graded tracks yet — analyze your library first.' });
+      return;
+    }
+
+    res.json({
+      track: { ...row.track, masteredPct: row.masteredPct, lastPlayedAt: row.lastPlayedAt },
+      targetScore: Number(target.toFixed(2)),
     });
   }),
 );

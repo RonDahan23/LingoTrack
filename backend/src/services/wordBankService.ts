@@ -18,7 +18,8 @@ import { enrichWord } from './morphology/enrich.js';
 import type { WordForm } from './morphology/inflect.js';
 import { FORM_LABELS } from './morphology/inflect.js';
 import { initialSrsState, masteryProgress } from './practice/srs.js';
-import { TranslationError, translateToHebrew } from './translationService.js';
+import { TranslationError } from './translationService.js';
+import { lookupWord } from './wordLookupService.js';
 
 export class WordBankError extends Error {
   constructor(message: string) {
@@ -126,14 +127,20 @@ export function toEntry(row: UserWordBank): WordBankEntry {
 }
 
 /**
- * Resolves the Hebrew translation for a lemma.
+ * Resolves the Hebrew translation for a captured word.
  *
- * The player translates the word before the learner can even press save, so the
- * Translation cache is nearly always warm and this costs no external call.
+ * Goes through the same context-aware lookup the player used, so a word saved
+ * from "and tore you open" lands in the bank as לִקְרוֹעַ rather than the
+ * dictionary's first sense דִמעָה. The player translated it moments earlier,
+ * so the senses cache is nearly always warm and this costs no external call.
  */
-async function resolveTranslation(lemma: string, fallback?: string | null): Promise<string> {
+async function resolveTranslation(
+  word: string,
+  contextLine: string | null | undefined,
+  fallback?: string | null,
+): Promise<string> {
   try {
-    return await translateToHebrew(lemma);
+    return (await lookupWord(word, contextLine)).translation;
   } catch (err) {
     if (err instanceof TranslationError && fallback && fallback.trim()) {
       return fallback.trim();
@@ -172,9 +179,11 @@ export async function captureWord(input: CaptureInput): Promise<CaptureResult> {
     trackId = link?.trackId ?? null;
   }
 
-  const translation = await resolveTranslation(enrichment.lemma, input.translation);
-  const initial = initialSrsState();
   const contextLine = input.contextLine?.trim() || null;
+  // The SURFACE form, not the lemma: the part-of-speech tagger locates the word
+  // inside the context line, and "tear" cannot be found in "and tore you open".
+  const translation = await resolveTranslation(input.word, contextLine, input.translation);
+  const initial = initialSrsState();
 
   // Checked before the upsert so the caller can distinguish a new capture from
   // a reinforcement. Deriving this from the returned row is not possible: an
