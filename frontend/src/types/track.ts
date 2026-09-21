@@ -24,6 +24,17 @@ export interface LyricLine {
 export interface TrackDetail {
   track: Track;
   lyrics: LyricLine[];
+  /**
+   * Words in this track the rest of the library suggests are unfamiliar,
+   * rarest first. A plain word list, not token positions — the client
+   * tokenises the lines itself, so matching by text keeps the two tokenisers
+   * from having to agree on indices. Empty when the library is too small to
+   * tell rare from merely unseen.
+   *
+   * Optional because the two halves deploy independently: a new client can
+   * briefly be talking to a backend that does not send this yet.
+   */
+  vocabulary?: string[];
 }
 
 /** Shape of GET /api/tracks/ranked. */

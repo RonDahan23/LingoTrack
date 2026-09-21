@@ -9,6 +9,7 @@ import { LrcLibProvider } from '../services/lyrics/lrclibProvider.js';
 import { gradeStoredTrack, processTrack } from '../services/gradingService.js';
 import { getGradeState, startGradeLibrary } from '../services/gradeLibraryService.js';
 import { estimateTargetScore, pickTrack } from '../services/picker/levelMatch.js';
+import { rareWordsForLines } from '../services/vocabulary/rarityService.js';
 
 export const tracksRouter: Router = Router();
 
@@ -216,7 +217,14 @@ tracksRouter.get(
       select: { text: true, startTime: true, endTime: true, lineNumber: true },
     });
 
-    res.json({ track: { ...link.track, masteredPct: link.masteredPct }, lyrics });
+    // Words the rest of the library suggests are unfamiliar, so the player can
+    // mark them without the learner having to tap to find out. A plain list of
+    // words rather than per-token indices: the client tokenises the lines
+    // itself, and matching by text means the two tokenisers never have to agree
+    // on positions.
+    const vocabulary = await rareWordsForLines(lyrics.map((line) => line.text));
+
+    res.json({ track: { ...link.track, masteredPct: link.masteredPct }, lyrics, vocabulary });
   }),
 );
 

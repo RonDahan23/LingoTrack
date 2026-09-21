@@ -1,4 +1,5 @@
 import { findPhraseAt, type PhraseMatch } from '../lib/phrases';
+import { rareTokenIndices } from '../lib/rareWords';
 import { cleanWord, tokenizeLine } from '../lib/wordTokenize';
 import type { LyricLine } from '../types/track';
 
@@ -33,6 +34,8 @@ interface LyricLineRowProps {
    * one, so the learner sees what was actually looked up.
    */
   selection?: { start: number; end: number } | null;
+  /** Library-wide unfamiliar words, marked so they can be noticed unprompted. */
+  vocabulary?: ReadonlySet<string>;
 }
 
 export function LyricLineRow({
@@ -44,8 +47,12 @@ export function LyricLineRow({
   onResume,
   onSeek,
   selection,
+  vocabulary,
 }: LyricLineRowProps) {
   const tokens = tokenizeLine(line.text);
+  // Underline, not a background tint: the row already uses background for the
+  // active line and for a selected phrase, and a third would collide with both.
+  const rare = rareTokenIndices(tokens, vocabulary ?? EMPTY);
 
   return (
     <div
@@ -76,6 +83,10 @@ export function LyricLineRow({
                   selection && i >= selection.start && i < selection.end
                     ? 'bg-brand/30 text-white'
                     : 'hover:bg-white/10 hover:text-white'
+                } ${
+                  rare.has(i)
+                    ? 'underline decoration-amber-400/70 decoration-dotted decoration-2 underline-offset-4'
+                    : ''
                 }`}
               >
                 {token.text}
@@ -154,3 +165,6 @@ function IconButton({
     </button>
   );
 }
+
+/** Stable empty set, so a row without vocabulary does not allocate per render. */
+const EMPTY: ReadonlySet<string> = new Set();

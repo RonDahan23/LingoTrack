@@ -99,6 +99,18 @@ came back as דִמעָה, "laid" as מוּנָח.
 - Machine translation is unreliable on phrasal verbs too, not just idioms: `fired up` → "נדלקה" (*got lit*), `burn out` → "לשרוף", `hold up` → "להרים". Those three carry curated glosses; verify before adding more, since many phrasal verbs ("run away", "get up", "turn around") come back fine.
 - A phrase that is neither listed nor particle-shaped costs nothing — the tap just falls back to single-word behaviour.
 
+### Unfamiliar-word marking
+
+The player dot-underlines words the library suggests the learner will not know, so unfamiliar vocabulary is noticed without anyone having to tap to find out. `GET /api/tracks/:trackId` carries a `vocabulary` list alongside the lyrics.
+
+**The signal is rarity, not CEFR level, and that is load-bearing.** `config/cefr.ts` treats every unlisted word as near-C2 — sound for *scoring*, where averaging over a song absorbs individual errors, but useless per word. Measured on a sample lyric: highlighting the explicitly-B2+ words marked 1 of 35 and missed *wreckage*, *gravity*, *neon*; highlighting what the engine scores as hard marked 51%, including *told*, *only* and *standing*. Expanding `cefr.ts` instead would also silently re-grade the whole library.
+
+- **The library is its own corpus** ([backend/src/services/vocabulary/](backend/src/services/vocabulary/)). `rarity.ts` is pure — document frequency over tracks (not occurrences, so a word repeated through a chorus is counted once), and a word is rare if it appears in at most `RARE_SHARE` of tracks. A *proportion*, so the threshold keeps its meaning as the library grows. Curated CEFR levels override in both directions: A1–B1 is never marked, B2+ always is.
+- **Below `MIN_CORPUS_TRACKS` nothing is marked at all** — in a library of five every word looks rare, and saying nothing is the honest answer.
+- `rarityService.ts` is the DB shell: the index is derived from every stored lyric, so it is cached in process with a TTL and a single in-flight build. Per-instance, like the sync registry; harmless because it is derived data that every copy converges on.
+- **The response is a word list, not token positions.** The client tokenises the lines itself, so matching by text means the two tokenisers never have to agree on indices — the alignment problem the phrase work had to design around. The one coupling is normalisation: `frontend/src/lib/rareWords.ts` mirrors the backend `tokenize` deliberately, because the list it matches against was produced by it.
+- **Underline, never a background tint.** The row already uses background twice — the active line and a selected phrase — and a third would collide with both. A line with more than `MAX_MARKED_PER_LINE` matches is left plain, since a wall of underlines carries no information.
+
 ### Song picker
 
 `GET /api/tracks/pick` returns one level-matched track; the dashboard's "Pick a song for me" button opens it. Scoped and filtered exactly like `/tracks/ranked` (graded tracks only, which implies lyrics exist, so anything picked is playable), and registered **before** `/tracks/:trackId` so "pick" is not read as an id.

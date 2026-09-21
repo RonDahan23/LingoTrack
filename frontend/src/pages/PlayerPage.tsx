@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchTrack, prepareTrack } from '../api/tracks';
 import { translateToHebrew } from '../api/translate';
@@ -61,6 +61,8 @@ export function PlayerPage() {
 
 function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () => void }) {
   const { track, lyrics } = detail;
+  // Built once per track, not per line: every row tests against the same set.
+  const vocabulary = useMemo(() => new Set(detail.vocabulary ?? []), [detail.vocabulary]);
   const player = useSpotifyPlayer();
 
   const [started, setStarted] = useState(false);
@@ -270,6 +272,7 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
                 isActive={i === activeIndex}
                 onWordTap={onWordTap}
                 selection={popover && popover.contextLine === line.text ? selection : null}
+                vocabulary={vocabulary}
                 onTranslate={() => onTranslateLine(i, line.text)}
                 translation={lineTx?.index === i ? lineTx : null}
                 onResume={onResumeLine}
