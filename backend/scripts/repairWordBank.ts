@@ -26,8 +26,20 @@ async function main() {
     select: { id: true, userId: true, word: true, lemma: true, translation: true, contextLine: true },
   });
 
-  const broken = rows.filter((r) => !HEBREW.test(r.translation));
-  console.log(`${rows.length} saved words, ${broken.length} with a non-Hebrew translation.`);
+  // Two symptoms, two detections. A translation with no Hebrew is the obvious
+  // one ("conquer" -> "conqu"). The subtler one carries Hebrew letters and is
+  // still wrong: "tired" lemmatised to the non-word "tir", which Google
+  // rendered phonetically as "טיר". That passes any script check, so it is
+  // caught instead by re-deriving the lemma from the stored surface form — a
+  // row whose lemma the current lemmatizer would not produce was written by
+  // the broken one.
+  const broken = rows.filter((r) => {
+    if (!HEBREW.test(r.translation)) return true;
+    const current = enrichWord(r.word, r.contextLine);
+    return current !== null && current.lemma !== r.lemma;
+  });
+
+  console.log(`${rows.length} saved words, ${broken.length} needing repair.`);
   if (broken.length === 0) return;
   if (!apply) console.log('(dry run — pass --apply to write)\n');
 
