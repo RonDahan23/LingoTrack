@@ -73,6 +73,36 @@ describe('selectSense', () => {
     expect(selectSense(senses, 'ADVERB')).toBe('דִמעָה');
   });
 
+  it('keeps the primary when no other part of speech claims it', () => {
+    // "tend": the dictionary ranks לְטַפֵּל בְּ- (to care for) first, but the
+    // model's own answer is the sense the lyric uses. Within one part of
+    // speech the dictionary's order is not evidence about this sentence.
+    const tend = parseDictionarySenses([
+      [['נוטים', 'tend', null, null, 2]],
+      [['verb', ['לְטַפֵּל בְּ-', 'לְפַקֵחַ', 'לִנְטוֹת'], null, null, 3]],
+      'en',
+    ]);
+    expect(selectSense(tend, 'VERB')).toBe('נוטים');
+  });
+
+  it('still overrides the primary when it belongs to another part of speech', () => {
+    // The guard that keeps "tore" from resolving to דִמעָה.
+    expect(selectSense(senses, 'VERB')).toBe('לִקְרוֹעַ');
+  });
+
+  it('tolerates the two fields being pointed differently', () => {
+    // `primary` often arrives without nikud while the dictionary has it.
+    const pointed = parseDictionarySenses([
+      [['דמעה', 'tear', null, null, 2]],
+      [
+        ['noun', ['דִמעָה'], null, null, 3],
+        ['verb', ['לִקְרוֹעַ'], null, null, 3],
+      ],
+      'en',
+    ]);
+    expect(selectSense(pointed, 'VERB')).toBe('לִקְרוֹעַ');
+  });
+
   it('falls back to the primary when there is no dictionary block', () => {
     expect(selectSense({ primary: 'שלום', senses: [] }, 'NOUN')).toBe('שלום');
   });

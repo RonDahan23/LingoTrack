@@ -105,3 +105,26 @@ describe('looksUntranslated', () => {
     expect(looksUntranslated('', '')).toBe(false);
   });
 });
+
+describe('guessPartOfSpeech: subject pronoun + verb', () => {
+  it('reads a content word after a subject pronoun as a verb', () => {
+    // The commonest position a verb occupies in a lyric returned UNKNOWN,
+    // which then built a NOUN-shaped family: "tend" got יחיד/רבים.
+    expect(guessPartOfSpeech('tend', 'What I tend to do').pos).toBe('VERB');
+    expect(guessPartOfSpeech('climb', 'I climb the wall').pos).toBe('VERB');
+    expect(guessPartOfSpeech('fall', 'we fall together').pos).toBe('VERB');
+    expect(guessPartOfSpeech('broke', 'they broke it').pos).toBe('VERB');
+  });
+
+  it('does not conjugate an adverb sitting between subject and verb', () => {
+    expect(guessPartOfSpeech('only', 'I only want you').pos).not.toBe('VERB');
+    expect(guessPartOfSpeech('just', 'I just know').pos).not.toBe('VERB');
+    expect(guessPartOfSpeech('always', 'we always fall').pos).not.toBe('VERB');
+  });
+
+  it('leaves a possessive determiner reading a noun', () => {
+    // "my"/"your" are determiners, not subject pronouns — the sets must not
+    // overlap or "my love" would become a verb.
+    expect(guessPartOfSpeech('love', 'my love is gone').pos).toBe('NOUN');
+  });
+});

@@ -125,6 +125,12 @@ describe('findPhraseAt: generic verb + particle', () => {
     expect(matchIn('walking along the road', 'along')?.translation).toBeNull();
   });
 
+  it('matches an explicit entry built on "to", which is not a particle', () => {
+    const m = matchIn('What I tend to do when it comes to you', 'tend');
+    expect(m?.text).toBe('tend to');
+    expect(m?.translation).toBe('נוטה ל־, נוטה');
+  });
+
   it('does not treat a general preposition as a particle', () => {
     // Admitting "of" would make this a phrase.
     expect(matchIn('king of the world', 'king')).toBeNull();

@@ -14,7 +14,7 @@
 
 import type { PartOfSpeech } from '../../config/wordBank.js';
 import { isKnownVerb } from './irregulars.js';
-import { tokenize } from '../grading/tokenizer.js';
+import { isContentWord, tokenize } from '../grading/tokenizer.js';
 
 export interface PosGuess {
   pos: PartOfSpeech;
@@ -30,6 +30,27 @@ const DETERMINERS = new Set([
 const MODALS = new Set([
   'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
   "don't", "won't", "can't", 'dont', 'wont', 'cant', 'let', "let's", 'lets',
+]);
+
+/**
+ * Subject pronouns. A content word directly after one is a verb in almost all
+ * English — "I tend", "we fall", "they broke". Without this rule the commonest
+ * position a verb occupies in a lyric produced UNKNOWN, which then built a
+ * NOUN-shaped family: "tend" was listed with יחיד/רבים instead of its
+ * conjugation. Possessives ("my", "your") are determiners and live in
+ * DETERMINERS, so the two sets do not overlap.
+ */
+const SUBJECT_PRONOUNS = new Set(['i', 'you', 'he', 'she', 'it', 'we', 'they', 'who']);
+
+/**
+ * Adverbs that sit between a subject and its verb. They are content words by
+ * the tokenizer's reckoning, so without listing them "I only want" would
+ * conjugate "only".
+ */
+const PREVERBAL_ADVERBS = new Set([
+  'only', 'just', 'always', 'still', 'really', 'almost', 'often', 'sometimes',
+  'usually', 'probably', 'definitely', 'actually', 'simply', 'barely', 'hardly',
+  'nearly', 'rather', 'once', 'truly', 'surely', 'finally', 'suddenly',
 ]);
 
 const BE_FORMS = new Set(['is', 'are', 'was', 'were', 'am', 'be', 'been', 'being']);
@@ -100,6 +121,11 @@ function fromContext(word: string, contextLine?: string | null): PosGuess | null
   if (prev === 'to' && !word.endsWith('ing')) return { pos: 'VERB', confidence: 'high' };
   if (prev && MODALS.has(prev)) return { pos: 'VERB', confidence: 'high' };
   if (prev && HAVE_FORMS.has(prev)) return { pos: 'VERB', confidence: 'high' };
+  // Guarded by isContentWord so "I never", "I just" and "I only" — adverbs
+  // that also follow a subject — are not conjugated into verbs.
+  if (prev && SUBJECT_PRONOUNS.has(prev) && isContentWord(word) && !PREVERBAL_ADVERBS.has(word)) {
+    return { pos: 'VERB', confidence: 'high' };
+  }
   if (prev && BE_FORMS.has(prev) && word.endsWith('ing')) {
     return { pos: 'VERB', confidence: 'high' };
   }

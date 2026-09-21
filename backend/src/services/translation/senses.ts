@@ -91,11 +91,42 @@ export function parseDictionarySenses(body: unknown): WordSenses {
  * the dictionary — a confident wrong sense is worse than Google's default,
  * which at least matches what every other translation tool would say.
  */
+/** Nikud-insensitive comparison: the two fields are not always pointed alike. */
+function sameWord(a: string, b: string): boolean {
+  const strip = (t: string) => t.replace(/[֑-ׇ]/g, '').trim();
+  return strip(a) === strip(b);
+}
+
+/**
+ * Picks the translation to show for a word whose part of speech is known.
+ *
+ * `primary` is the translation model's own answer for the bare word, and it
+ * reflects how the word is actually used; the dictionary's ordering is a
+ * separate, sometimes older ranking. So the dictionary only overrides the
+ * model when the model has clearly answered about a *different* part of
+ * speech — which is exactly the "tear" case, where `primary` is דִמעָה, the
+ * noun, while the line calls for the verb.
+ *
+ * Without that condition the dictionary's first entry wins unconditionally,
+ * and for "tend" that is לְטַפֵּל בְּ-, *to care for* — a real sense of the
+ * word, but not the one in "what I tend to do", which the model gets right.
+ * Within one part of speech the dictionary's ranking is not evidence about
+ * this sentence; the same lesson as "lie", whose senses are both verbs.
+ *
+ * Falls back to `primary` when the part of speech is unknown or absent from
+ * the dictionary — a confident wrong sense is worse than Google's default.
+ */
 export function selectSense(senses: WordSenses, pos: PartOfSpeech): string {
   if (pos === 'UNKNOWN' || pos === 'OTHER') return senses.primary;
 
   const match = senses.senses.find((s) => s.pos === pos);
-  return match?.translations[0] ?? senses.primary;
+  if (!match) return senses.primary;
+
+  const claimedByAnotherPos = senses.senses.some(
+    (group) => group.pos !== pos && group.translations.some((t) => sameWord(t, senses.primary)),
+  );
+
+  return claimedByAnotherPos ? (match.translations[0] ?? senses.primary) : senses.primary;
 }
 
 /** Hosts serving the same endpoint, tried in order — see providers.ts. */

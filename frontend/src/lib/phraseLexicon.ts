@@ -176,6 +176,9 @@ export const PHRASES: PhraseEntry[] = [
   p([v('fire'), 'up'], 'נלהב, מלא מרץ'),
   p([v('burn'), 'out'], 'להישרף, להתיש'),
   p([v('hold', 'held'), 'up'], 'לעכב, לחכות'),
+  // "to" is not a particle (see PARTICLES), so this needs an explicit entry.
+  // The machine renders "tend to" as נוטים — plural, and dropping the "to".
+  p([v('tend'), 'to'], 'נוטה ל־, נוטה'),
   p([v('calm'), 'down'], 'להירגע'),
   p([v('count'), 'on'], 'לסמוך על'),
   p([v('deal', 'dealt'), 'with'], 'להתמודד עם'),
