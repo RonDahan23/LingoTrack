@@ -30,6 +30,33 @@ export const DETERMINERS = new Set([
   'that', 'these', 'those', 'some', 'any', 'no',
 ]);
 
+/**
+ * Particles that turn a preceding verb into a phrasal verb.
+ *
+ * Only true particles — general prepositions ("of", "at", "for") are left out
+ * on purpose, because admitting them would make "king of the world" and "tired
+ * of the way" look like phrases.
+ */
+export const PARTICLES = new Set([
+  'up', 'down', 'out', 'off', 'away', 'back', 'over', 'on', 'in', 'along',
+  'through', 'around', 'apart', 'together', 'ahead', 'aside', 'forward',
+]);
+
+/**
+ * Words that cannot head a phrasal verb. Without this, "I'm back", "that's on
+ * me" and "the way out" would all be read as verb + particle.
+ */
+export const NOT_PHRASAL_HEADS = new Set([
+  'the', 'a', 'an', 'this', 'that', 'these', 'those', 'my', 'your', 'his',
+  'her', 'its', 'our', 'their', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+  'me', 'him', 'us', 'them', 'is', 'are', 'was', 'were', 'am', 'be', 'been',
+  'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall',
+  'should', 'can', 'could', 'may', 'might', 'must', 'and', 'or', 'but', 'so',
+  'if', 'than', 'then', 'of', 'for', 'with', 'from', 'at', 'to', 'as', 'not',
+  "i'm", "you're", "he's", "she's", "it's", "we're", "they're", "that's",
+  "there's", "don't", "won't", "can't", "ain't", 'no', 'yes', 'oh',
+]);
+
 export interface PhraseEntry {
   /**
    * Ordered slots. Each is either pipe-separated surface alternatives or the
@@ -146,6 +173,9 @@ export const PHRASES: PhraseEntry[] = [
   p([v('tear', 'tore', 'torn'), 'apart'], 'לקרוע לגזרים'),
   p([v('wear', 'wore', 'worn'), 'out'], 'לשחוק, להתיש'),
   p([v('blow', 'blew', 'blown'), 'away'], 'להדהים'),
+  p([v('fire'), 'up'], 'נלהב, מלא מרץ'),
+  p([v('burn'), 'out'], 'להישרף, להתיש'),
+  p([v('hold', 'held'), 'up'], 'לעכב, לחכות'),
   p([v('calm'), 'down'], 'להירגע'),
   p([v('count'), 'on'], 'לסמוך על'),
   p([v('deal', 'dealt'), 'with'], 'להתמודד עם'),

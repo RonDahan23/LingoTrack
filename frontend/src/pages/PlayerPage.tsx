@@ -127,6 +127,7 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
         word,
         phrase: phrase?.text ?? null,
         senses: [],
+        wordTranslation: null,
         error: null,
         x: anchor.left + anchor.width / 2,
         y: anchor.top,
@@ -138,13 +139,29 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
       setPopover({ ...base, translation: phrase?.translation ?? null });
       setSelection(phrase ? { start: phrase.start, end: phrase.end } : null);
 
-      // Curated phrase: already on screen, nothing to fetch.
-      if (phrase?.translation) return;
-
       // Only apply a response if the same tap is still open — the learner may
       // have moved on to another word while this was in flight.
       const isCurrent = (p: WordPopover | null) =>
         p && p.word === word && p.phrase === (phrase?.text ?? null);
+
+      // With a phrase on screen, the tapped word is still looked up and shown
+      // underneath. Detection is a guess — a generic verb+particle match can
+      // be wrong — and this keeps a wrong guess from being a dead end. It also
+      // gives Save, which banks the single word, a meaning to display.
+      if (phrase) {
+        void lookupWord(word, contextLine)
+          .then((result) =>
+            setPopover((p) =>
+              isCurrent(p) ? { ...(p as WordPopover), wordTranslation: result.translation } : p,
+            ),
+          )
+          .catch(() => {
+            /* the phrase is the headline; a missing word gloss just stays hidden */
+          });
+      }
+
+      // Curated phrase: already on screen, nothing more to fetch for it.
+      if (phrase?.translation) return;
 
       try {
         if (phrase) {

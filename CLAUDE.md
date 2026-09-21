@@ -94,7 +94,10 @@ came back as דִמעָה, "laid" as מוּנָח.
 - **`he` in the lexicon is present only where machine translation is WRONG.** Google renders "no offense" as "ללא עבירה" — *without a crime*. Where the machine is right ("clap along" → "למחוא כפיים") the gloss is deliberately omitted and the phrase goes through the normal cached `/api/translate`, so the lexicon stays a small idiom list instead of a second translation memory.
 - Patterns are surface forms because they must match the line *as sung*: `v()` expands a verb to its inflected forms, and irregular pasts are passed explicitly (`v('lay', 'laid')`) since guessing would silently fail to match. `[DET]` is an optional determiner slot, so one entry covers "lay eyes on" and "laid your eyes on".
 - **`DET` lives in `phraseLexicon.ts`, not in `phrases.ts`.** As a cycle (matcher ↔ lexicon) the sentinel was still undefined while the entries were being constructed, and every pattern using it silently held a hole.
-- A missing phrase costs nothing — the tap just falls back to single-word behaviour.
+- **A curated list always misses something**, so an unlisted verb immediately followed by a *particle* is detected as a phrase anyway (`findParticlePhrase`). "fired up" was missing, and a tap returned "fired" → לִירוֹת, *to shoot*. The rule is deliberately narrow: only true particles count (admitting "of" would make "king of the world" a phrase), and the head must not be a function word (or "I'm back" and "that's on me" would match). The lexicon still wins where it has an entry.
+- Because detection is now partly a guess, the popover shows the **tapped word's own translation underneath the phrase**. A wrong guess is then merely noise rather than a dead end with no way back to the word the learner actually tapped — and it gives the Save button, which banks the single word, a meaning to display.
+- Machine translation is unreliable on phrasal verbs too, not just idioms: `fired up` → "נדלקה" (*got lit*), `burn out` → "לשרוף", `hold up` → "להרים". Those three carry curated glosses; verify before adding more, since many phrasal verbs ("run away", "get up", "turn around") come back fine.
+- A phrase that is neither listed nor particle-shaped costs nothing — the tap just falls back to single-word behaviour.
 
 ### Song picker
 

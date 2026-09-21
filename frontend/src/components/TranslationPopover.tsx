@@ -16,6 +16,13 @@ export interface WordPopover {
   phrase: string | null;
   /** Other dictionary senses, offered when the chosen one may not fit. */
   senses: WordSense[];
+  /**
+   * The tapped word's own meaning, shown underneath when a phrase is on
+   * display. Phrase detection is a guess, and without this a wrong guess
+   * would be a dead end — the learner would have no way back to the word
+   * they actually tapped.
+   */
+  wordTranslation: string | null;
   translation: string | null; // null while loading
   error: string | null;
   x: number; // viewport coords of the tapped word: horizontal centre,
@@ -79,6 +86,7 @@ export function TranslationPopover({
     popover.save,
     popover.phrase,
     popover.senses,
+    popover.wordTranslation,
   ]);
 
   return (
@@ -115,6 +123,15 @@ export function TranslationPopover({
         ) : (
           <p dir="rtl" className="text-lg font-semibold text-white">
             {popover.translation}
+          </p>
+        )}
+
+        {popover.phrase && popover.wordTranslation && (
+          <p className="mt-1.5 flex items-baseline gap-1.5 border-t border-neutral-800 pt-1.5 text-[11px]">
+            <bdi className="shrink-0 text-neutral-500">{popover.word}</bdi>
+            <bdi dir="rtl" className="text-neutral-300">
+              {popover.wordTranslation}
+            </bdi>
           </p>
         )}
 

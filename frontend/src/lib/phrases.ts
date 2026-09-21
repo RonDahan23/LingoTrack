@@ -1,4 +1,11 @@
-import { DET, DETERMINERS, PHRASES, type PhraseEntry } from './phraseLexicon';
+import {
+  DET,
+  DETERMINERS,
+  NOT_PHRASAL_HEADS,
+  PARTICLES,
+  PHRASES,
+  type PhraseEntry,
+} from './phraseLexicon';
 import type { LineToken } from './wordTokenize';
 
 /**
@@ -65,6 +72,32 @@ function matchAt(entry: PhraseEntry, words: string[], from: number): number {
  * go to the earlier start and then to lexicon order, which keeps the result
  * deterministic for a given line rather than dependent on iteration order.
  */
+/**
+ * Falls back to the shape of a phrasal verb when the lexicon has no entry.
+ *
+ * A curated list will always be missing something — "fired up" was, and a tap
+ * on it returned "fired" alone, which translates to לִירוֹת, *to shoot*. So a
+ * verb immediately followed by a particle is treated as a phrase even when
+ * unlisted, in both directions (tapping either half finds the pair).
+ *
+ * Deliberately narrow. Only true particles count, never general prepositions:
+ * admitting "of" would turn "king of the world" into a phrase. And the head
+ * must not be a function word, or "I'm back" and "that's on me" would match.
+ * Missing a phrase costs a tap; inventing one wastes the learner's attention.
+ */
+function findParticlePhrase(words: string[], at: number): { start: number; length: number } | null {
+  const isHead = (w: string | undefined) =>
+    w !== undefined && !NOT_PHRASAL_HEADS.has(w) && !PARTICLES.has(w);
+
+  if (PARTICLES.has(words[at + 1] as string) && isHead(words[at])) {
+    return { start: at, length: 2 };
+  }
+  if (at > 0 && PARTICLES.has(words[at] as string) && isHead(words[at - 1])) {
+    return { start: at - 1, length: 2 };
+  }
+  return null;
+}
+
 export function findPhraseAt(tokens: LineToken[], tokenIndex: number): PhraseMatch | null {
   const target = tokens[tokenIndex];
   if (!target?.isWord) return null;
@@ -98,7 +131,12 @@ export function findPhraseAt(tokens: LineToken[], tokenIndex: number): PhraseMat
     }
   }
 
-  if (!best) return null;
+  // The curated lexicon wins; the generic particle rule only fills its gaps.
+  if (!best) {
+    const generic = findParticlePhrase(words, targetWord);
+    if (!generic) return null;
+    best = { startWord: generic.start, length: generic.length, entry: { pattern: [] } };
+  }
 
   const start = positions[best.startWord] as number;
   const end = (positions[best.startWord + best.length - 1] as number) + 1;

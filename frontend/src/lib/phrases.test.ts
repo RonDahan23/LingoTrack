@@ -87,7 +87,8 @@ describe('findPhraseAt', () => {
   });
 
   it('returns null for a word in no phrase', () => {
-    expect(matchIn('Silence screaming over your words', 'screaming')).toBeNull();
+    expect(matchIn('Silence screaming over your words', 'words')).toBeNull();
+    expect(matchIn('I never did you right, I know that', 'never')).toBeNull();
   });
 
   it('returns null for a separator token', () => {
@@ -102,7 +103,38 @@ describe('findPhraseAt', () => {
   });
 
   it('never matches a single word as a phrase', () => {
-    // "along" alone is exactly the failure this feature exists to prevent.
-    expect(matchIn('walking along', 'along')).toBeNull();
+    // No particle beside it, so there is nothing to pair "sky" with.
+    expect(matchIn('under the wide sky', 'sky')).toBeNull();
+  });
+});
+
+describe('findPhraseAt: generic verb + particle', () => {
+  it('finds a phrasal verb the lexicon does not list', () => {
+    // The reported bug: tapping "fired" gave לִירוֹת, to shoot.
+    const line = "I'm fired up and tired of the way that things have been";
+    expect(matchIn(line, 'fired')?.text).toBe('fired up');
+    expect(matchIn(line, 'up')?.text).toBe('fired up');
+  });
+
+  it('prefers the curated gloss when the lexicon does list it', () => {
+    expect(matchIn("I'm fired up", 'fired')?.translation).toBe('נלהב, מלא מרץ');
+  });
+
+  it('leaves an unlisted phrase to the translation API', () => {
+    expect(matchIn('walking along the road', 'along')?.text).toBe('walking along');
+    expect(matchIn('walking along the road', 'along')?.translation).toBeNull();
+  });
+
+  it('does not treat a general preposition as a particle', () => {
+    // Admitting "of" would make this a phrase.
+    expect(matchIn('king of the world', 'king')).toBeNull();
+    expect(matchIn('tired of the way', 'tired')).toBeNull();
+  });
+
+  it('does not let a function word head a phrase', () => {
+    // "I'm back", "that's on me" — subject + particle is not a phrasal verb.
+    expect(matchIn("I'm back on my feet", 'back')).toBeNull();
+    expect(matchIn("that's on me", 'on')).toBeNull();
+    expect(matchIn('the way that things have been', 'that')).toBeNull();
   });
 });
