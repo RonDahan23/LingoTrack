@@ -283,7 +283,7 @@ describe('generateExercises', () => {
       (e) => e.type === 'FORM_MATCH',
     );
     if (match) {
-      expect(match.prompt).toMatch(/Which is the/);
+      expect(match.prompt).toMatch(/^מהי /);
       expect(match.formLabel).toBeTruthy();
     }
   });

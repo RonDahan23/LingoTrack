@@ -22,15 +22,16 @@ export function ExerciseCard({
 
   return (
     <div>
-      <p className="text-sm text-neutral-400">{promptLabel(exercise)}</p>
+      <p dir="auto" className="text-sm text-neutral-400">{promptLabel(exercise)}</p>
 
       {exercise.type === 'FILL_BLANK' && exercise.sentence ? (
         <FillBlankPrompt sentence={exercise.sentence} />
       ) : (
-        <p
-          dir={exercise.type === 'MCQ_HE_TO_EN' ? 'rtl' : 'ltr'}
-          className="mt-2 text-3xl font-semibold text-white"
-        >
+        // dir=auto, not a per-type ternary: the question text is Hebrew for
+        // every type except MCQ_EN_TO_HE, whose prompt is the English word
+        // itself. Resolving from the first strong character gets all four
+        // right, and keeps working if a prompt's language changes.
+        <p dir="auto" className="mt-2 text-3xl font-semibold text-white">
           {exercise.prompt}
         </p>
       )}
@@ -64,16 +65,17 @@ function FillBlankPrompt({ sentence }: { sentence: string }) {
   );
 }
 
+/** Instructions are Hebrew; only the English being practised stays English. */
 function promptLabel(exercise: Exercise): string {
   switch (exercise.type) {
     case 'MCQ_EN_TO_HE':
-      return 'What does this mean?';
+      return 'מה הפירוש?';
     case 'MCQ_HE_TO_EN':
-      return 'Which English word is this?';
+      return 'איזו מילה באנגלית זו?';
     case 'FILL_BLANK':
-      return 'Complete the lyric';
+      return 'השלימו את השורה';
     case 'FORM_MATCH':
-      return 'Word forms';
+      return 'צורות של המילה';
     default:
       return '';
   }

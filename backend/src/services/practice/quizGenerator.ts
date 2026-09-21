@@ -222,7 +222,7 @@ function fillBlank(
     id: `${word.id}:FILL_BLANK`,
     wordId: word.id,
     type: 'FILL_BLANK',
-    prompt: 'Complete the lyric',
+    prompt: 'השלימו את השורה',
     sentence: blanked.sentence,
     options: built.options,
     answerIndex: built.answerIndex,
@@ -231,20 +231,29 @@ function fillBlank(
   };
 }
 
-/** Human-readable names for the grammatical forms, used in FORM_MATCH prompts. */
+/**
+ * Hebrew names for the grammatical forms, used in FORM_MATCH prompts.
+ *
+ * The learner is a Hebrew speaker, so the question is asked in Hebrew while
+ * the answer options stay English — they are the thing being tested. These
+ * must stay in step with `FORM_LABEL_NAMES` in the web client's
+ * `types/word.ts`, which labels the same forms on a word card: a quiz asking
+ * for a "צורה שלישית" and a card calling it something else is the same bug as
+ * a mislabelled option.
+ */
 const LABEL_PROMPTS: Partial<Record<FormLabel, string>> = {
-  base: 'base form',
-  infinitive: 'infinitive',
-  third_person: 'third-person singular',
-  gerund: '-ing form',
-  past: 'past tense',
-  past_participle: 'past participle',
-  agent_noun: 'person who does this',
-  plural: 'plural',
-  singular: 'singular',
-  comparative: 'comparative',
-  superlative: 'superlative',
-  adverb: 'adverb',
+  base: 'צורת הבסיס',
+  infinitive: 'שם הפועל',
+  third_person: 'צורת הוא/היא',
+  gerund: 'צורת ‎-ing',
+  past: 'צורת העבר',
+  past_participle: 'הצורה השלישית',
+  agent_noun: 'מבצע הפעולה',
+  plural: 'צורת הרבים',
+  singular: 'צורת היחיד',
+  comparative: 'דרגת היתרון',
+  superlative: 'דרגת ההפלגה',
+  adverb: 'תואר הפועל',
 };
 
 /**
@@ -279,7 +288,9 @@ function formMatch(
     id: `${word.id}:FORM_MATCH`,
     wordId: word.id,
     type: 'FORM_MATCH',
-    prompt: `Which is the ${LABEL_PROMPTS[target.label]} of "${word.lemma}"?`,
+    // The English lemma is wrapped so the quotes around it survive the bidi
+    // algorithm when the Hebrew question is rendered.
+    prompt: `מהי ${LABEL_PROMPTS[target.label]} של ⁨"${word.lemma}"⁩?`,
     options: built.options,
     answerIndex: built.answerIndex,
     word: word.word,

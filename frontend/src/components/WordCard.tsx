@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { SpeakButton } from './SpeakButton';
 import { formatDueLabel, sortForms } from '../lib/practiceProgress';
 import {
   FORM_LABEL_NAMES,
@@ -17,34 +18,41 @@ export function WordCard({ word, onDelete }: { word: WordBankEntry; onDelete: ()
 
   return (
     <div className="rounded-xl bg-surface-raised">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="truncate text-base font-semibold text-white">{word.lemma}</p>
-            {pos && <span className="shrink-0 text-xs text-neutral-500">{pos}</span>}
-            {word.cefrLevel && (
-              <span className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
-                {word.cefrLevel}
-              </span>
-            )}
+      {/* The speaker is a sibling of the expand toggle, not a child: a button
+          cannot nest inside a button, and tapping it must not open the card. */}
+      <div className="flex w-full items-center gap-2 rounded-xl p-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="-m-1 flex min-w-0 rounded-lg p-1 text-left transition hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="truncate text-base font-semibold text-white">{word.lemma}</p>
+              {/* Hebrew, but its own flex item — already bidi-isolated. */}
+              {pos && <span className="shrink-0 text-xs text-neutral-500">{pos}</span>}
+              {word.cefrLevel && (
+                <span className="shrink-0 rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
+                  {word.cefrLevel}
+                </span>
+              )}
+            </div>
+            <p dir="rtl" className="truncate text-sm text-emerald-200">
+              {word.translation}
+            </p>
           </div>
-          <p dir="rtl" className="truncate text-sm text-emerald-200">
-            {word.translation}
-          </p>
-        </div>
+        </button>
 
-        <div className="flex shrink-0 flex-col items-end gap-1">
+        <SpeakButton text={word.lemma} />
+
+        <div className="ms-auto flex shrink-0 flex-col items-end gap-1">
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.badge}`}>
             {meta.label}
           </span>
           <span className="text-[11px] text-neutral-500">{formatDueLabel(word.dueAt)}</span>
         </div>
-      </button>
+      </div>
 
       {/* Mastery bar — mirrors the track tile's progress treatment. */}
       <div className="mx-3 h-1.5 overflow-hidden rounded-full bg-neutral-700">
@@ -57,20 +65,26 @@ export function WordCard({ word, onDelete }: { word: WordBankEntry; onDelete: ()
       {open && (
         <div className="px-3 pb-3 pt-2">
           {word.word !== word.lemma && (
-            <p className="text-xs text-neutral-500">
-              saved as “{word.word}” — part of the “{word.root}” family
+            /* dir=rtl so the Hebrew reads correctly; each English word in a
+               <bdi> so its quotes and the dash do not jump ends. */
+            <p dir="rtl" className="text-left text-xs text-neutral-500">
+              נשמר כ־<bdi className="text-neutral-400">“{word.word}”</bdi> — חלק
+              ממשפחת <bdi className="text-neutral-400">“{word.root}”</bdi>
             </p>
           )}
 
           {word.forms.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {sortForms(word.forms).map((form) => (
+                /* gap on the chip, not a margin on the label: <bdi> defaults
+                   to dir=auto, so a Hebrew label computes as RTL and any
+                   logical margin lands on the side away from the word. */
                 <span
                   key={`${form.label}:${form.form}`}
-                  className="rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-200"
+                  className="inline-flex items-baseline gap-1 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-200"
                 >
-                  {form.form}
-                  <span className="ml-1 text-neutral-500">{FORM_LABEL_NAMES[form.label]}</span>
+                  <bdi>{form.form}</bdi>
+                  <bdi className="text-neutral-500">{FORM_LABEL_NAMES[form.label]}</bdi>
                 </span>
               ))}
             </div>

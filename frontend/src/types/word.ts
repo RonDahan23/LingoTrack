@@ -118,27 +118,40 @@ export const WORD_STATUS_META: Record<
   },
 };
 
-/** Human-readable names for grammatical forms, shown on word detail cards. */
+/**
+ * Hebrew names for the grammatical forms and parts of speech shown on a word
+ * card.
+ *
+ * The metalanguage is Hebrew because the learner is a Hebrew speaker; the
+ * English words themselves obviously stay English — they are the thing being
+ * learned. Terms follow what English is taught with in Israeli schools
+ * ("צורה שלישית" for the past participle, not the linguist's "בינוני פעול"),
+ * so a card reads the way a classroom would explain it.
+ *
+ * Anywhere one of these sits inline next to an English word, wrap it in
+ * `<bdi>` — otherwise the quotes and dashes around it get reordered by the
+ * bidi algorithm. Flex items are already isolated and need no wrapper.
+ */
 export const FORM_LABEL_NAMES: Record<FormLabel, string> = {
-  base: 'base',
-  infinitive: 'infinitive',
-  third_person: 'he/she/it',
-  gerund: '-ing form',
-  past: 'past',
-  past_participle: 'past participle',
-  agent_noun: 'the doer',
-  singular: 'singular',
-  plural: 'plural',
-  comparative: 'comparative',
-  superlative: 'superlative',
-  adverb: 'adverb',
+  base: 'בסיס',
+  infinitive: 'שם הפועל',
+  third_person: 'הוא/היא',
+  gerund: 'צורת ‎-ing',
+  past: 'עבר',
+  past_participle: 'צורה שלישית',
+  agent_noun: 'מבצע הפעולה',
+  singular: 'יחיד',
+  plural: 'רבים',
+  comparative: 'יתרון',
+  superlative: 'הפלגה',
+  adverb: 'תואר הפועל',
 };
 
 export const PART_OF_SPEECH_NAMES: Record<PartOfSpeech, string> = {
-  NOUN: 'noun',
-  VERB: 'verb',
-  ADJECTIVE: 'adjective',
-  ADVERB: 'adverb',
-  OTHER: 'other',
+  NOUN: 'שם עצם',
+  VERB: 'פועל',
+  ADJECTIVE: 'שם תואר',
+  ADVERB: 'תואר הפועל',
+  OTHER: 'אחר',
   UNKNOWN: '',
 };
