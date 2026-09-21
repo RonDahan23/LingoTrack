@@ -17,7 +17,8 @@ interface LyricLineRowProps {
    */
   onWordTap: (
     word: string,
-    anchor: DOMRect,
+    /** The tapped element itself, so the card can follow it as lyrics scroll. */
+    anchorEl: HTMLElement,
     contextLine: string,
     phrase: PhraseMatch | null,
   ) => void;
@@ -66,7 +67,7 @@ export function LyricLineRow({
                 onClick={(e) =>
                   onWordTap(
                     cleanWord(token.text),
-                    e.currentTarget.getBoundingClientRect(),
+                    e.currentTarget,
                     line.text,
                     findPhraseAt(tokens, i),
                   )

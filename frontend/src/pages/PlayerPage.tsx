@@ -120,9 +120,10 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
    *                      sense matching the word's part of speech in this line
    */
   const onWordTap = useCallback(
-    async (word: string, anchor: DOMRect, contextLine: string, phrase: PhraseMatch | null) => {
+    async (word: string, anchorEl: HTMLElement, contextLine: string, phrase: PhraseMatch | null) => {
       if (!word) return;
 
+      const anchor = anchorEl.getBoundingClientRect();
       const base = {
         word,
         phrase: phrase?.text ?? null,
@@ -133,6 +134,7 @@ function SyncPlayer({ detail, onReload }: { detail: TrackDetail; onReload: () =>
         y: anchor.top,
         anchorBottom: anchor.bottom,
         contextLine,
+        anchorEl,
         save: 'idle' as const,
       };
 

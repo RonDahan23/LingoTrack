@@ -31,12 +31,21 @@ export interface WordPopover {
   anchorBottom: number;
   /** The lyric line the word came from; stored with the word for practice. */
   contextLine: string;
+  /**
+   * The tapped word's element. Kept so the card can re-anchor itself while the
+   * lyrics scroll underneath it, rather than being dismissed by the scroll.
+   */
+  anchorEl: HTMLElement | null;
   save: SaveState;
 }
 
 /// A small floating card that shows a tapped word's Hebrew translation and lets
-/// the learner push it into their word bank. Fixed to viewport coords;
-/// dismisses on outside click, Escape, or scroll.
+/// the learner push it into their word bank.
+///
+/// It follows the tapped word as the lyrics scroll, and dismisses only on an
+/// outside tap or Escape. It used to close on ANY scroll, which meant playback
+/// advancing to the next line — which auto-scrolls that line into view — wiped
+/// the translation off the screen a second or two after it appeared.
 export function TranslationPopover({
   popover,
   onClose,
@@ -46,20 +55,32 @@ export function TranslationPopover({
   onClose: () => void;
   onSave: () => void;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+
+    // Dismiss on a tap outside the card. This replaces a full-screen click
+    // catcher: the card now outlives playback advancing, so a transparent
+    // overlay would sit there blocking the lyrics for as long as it is open.
+    //
+    // pointerdown, not click, so that tapping another word closes this card
+    // before that word's own click opens its one.
+    const onPointerDown = (e: PointerEvent) => {
+      if (!cardRef.current?.contains(e.target as Node)) onClose();
+    };
+
     window.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', onClose, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
     return () => {
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', onClose, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
     };
   }, [onClose]);
 
   // Nothing to save until the translation has actually arrived.
   const canSave = popover.translation !== null && popover.save === 'idle';
 
-  const cardRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
 
   // Measure the card and keep it inside the viewport. On a phone a word near
@@ -70,14 +91,31 @@ export function TranslationPopover({
     const place = () => {
       const el = cardRef.current;
       if (!el) return;
-      setPlacement(clampToViewport(el.getBoundingClientRect(), popover, window));
+
+      // Re-read the word's position every time. The lyrics scroll on their own
+      // as playback advances, so the coordinates captured at tap time go stale
+      // within a line or two — the card used to be dismissed by that scroll
+      // rather than following it.
+      const anchor = popover.anchorEl?.getBoundingClientRect();
+      const live = anchor
+        ? { x: anchor.left + anchor.width / 2, y: anchor.top, anchorBottom: anchor.bottom }
+        : popover;
+
+      setPlacement(clampToViewport(el.getBoundingClientRect(), live, window));
     };
     place();
     window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
+    // Capture phase: the lyric list scrolls, not the window, and a scroll event
+    // on an inner element does not bubble.
+    document.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      document.removeEventListener('scroll', place, true);
+    };
     // Re-measure when the content changes height (translation arrives, the save
     // button appears, an error replaces the text).
   }, [
+    popover.anchorEl,
     popover.x,
     popover.y,
     popover.anchorBottom,
@@ -91,8 +129,6 @@ export function TranslationPopover({
 
   return (
     <>
-      {/* click-catcher */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         ref={cardRef}
         role="dialog"
